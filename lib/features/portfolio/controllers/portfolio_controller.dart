@@ -2,21 +2,39 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../data/repositories/portfolio_repository.dart';
 
-final portfolioControllerProvider = Provider<PortfolioAllocationViewModel>((
-  ref,
-) {
-  final repository = ref.watch(portfolioRepositoryProvider);
-  final allocations = repository.getAllocations();
-  final topHoldings = repository.getTopHoldings(limit: 5);
+final portfolioControllerProvider =
+    NotifierProvider<PortfolioController, PortfolioAllocationViewModel>(
+      PortfolioController.new,
+    );
 
-  return PortfolioAllocationViewModel(
-    allocations: allocations,
-    topHoldings: topHoldings,
-    contributionDirections: repository.getContributionDirections(),
-    topFiveConcentration: repository.getTopFiveConcentration(),
-    largestHoldingConcentration: repository.getLargestHoldingConcentration(),
-  );
-});
+class PortfolioController extends Notifier<PortfolioAllocationViewModel> {
+  late final PortfolioRepository _repository;
+
+  @override
+  PortfolioAllocationViewModel build() {
+    _repository = ref.read(portfolioRepositoryProvider);
+    Future<void>.microtask(reload);
+    return _snapshotFromRepository();
+  }
+
+  Future<void> reload() async {
+    await _repository.refresh();
+    if (!ref.mounted) {
+      return;
+    }
+    state = _snapshotFromRepository();
+  }
+
+  PortfolioAllocationViewModel _snapshotFromRepository() {
+    return PortfolioAllocationViewModel(
+      allocations: _repository.getAllocations(),
+      topHoldings: _repository.getTopHoldings(limit: 5),
+      contributionDirections: _repository.getContributionDirections(),
+      topFiveConcentration: _repository.getTopFiveConcentration(),
+      largestHoldingConcentration: _repository.getLargestHoldingConcentration(),
+    );
+  }
+}
 
 class PortfolioAllocationViewModel {
   const PortfolioAllocationViewModel({

@@ -31,13 +31,13 @@ class _AddAssetPageState extends ConsumerState<AddAssetPage> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
     final amount = num.parse(_valueController.text.replaceAll(',', '').trim());
-    ref
+    await ref
         .read(assetsControllerProvider.notifier)
         .addAsset(
           name: _nameController.text.trim(),
@@ -133,7 +133,9 @@ class _AddAssetPageState extends ConsumerState<AddAssetPage> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: FilledButton.icon(
-                        onPressed: _submit,
+                        onPressed: () {
+                          _submit();
+                        },
                         icon: const Icon(Icons.check),
                         label: const Text('建立資產'),
                       ),

@@ -93,9 +93,12 @@ class AssetsPage extends ConsumerWidget {
                     title: entry.$2.$1.label,
                     assets: entry.$2.$2,
                     portfolioTotal: totalValue,
-                    onAdjustValue: (asset) =>
-                        controller.quickIncreaseValue(asset.id),
-                    onDelete: (asset) => controller.deleteAsset(asset.id),
+                    onAdjustValue: (asset) {
+                      controller.quickIncreaseValue(asset.id);
+                    },
+                    onDelete: (asset) {
+                      controller.deleteAsset(asset.id);
+                    },
                   ),
                   if (entry.$1 != groupedAssets.length - 1)
                     const SizedBox(height: AppSpacing.lg),

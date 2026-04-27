@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 
 enum HealthAlertTone { structural, review, educational, info }
@@ -27,7 +26,7 @@ class HealthAlertCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final style = _styleFor(tone);
+    final style = _styleFor(context, tone);
     final hasPrimaryAction = onPrimaryAction != null;
     final hasSecondaryAction =
         onSecondaryAction != null && secondaryActionLabel != null;
@@ -55,7 +54,7 @@ class HealthAlertCard extends StatelessWidget {
                     Text(
                       title,
                       style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                        color: AppColors.textPrimary,
+                        color: style.foreground,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 0,
                       ),
@@ -64,7 +63,7 @@ class HealthAlertCard extends StatelessWidget {
                     Text(
                       body,
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textTertiary,
+                        color: style.foreground.withValues(alpha: 0.84),
                         letterSpacing: 0,
                       ),
                     ),
@@ -93,7 +92,9 @@ class HealthAlertCard extends StatelessWidget {
                   TextButton(
                     onPressed: onSecondaryAction,
                     style: TextButton.styleFrom(
-                      foregroundColor: AppColors.textTertiary,
+                      foregroundColor: Theme.of(
+                        context,
+                      ).colorScheme.onSurfaceVariant,
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       visualDensity: VisualDensity.compact,
                     ),
@@ -107,30 +108,32 @@ class HealthAlertCard extends StatelessWidget {
     );
   }
 
-  _HealthAlertStyle _styleFor(HealthAlertTone tone) {
+  _HealthAlertStyle _styleFor(BuildContext context, HealthAlertTone tone) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return switch (tone) {
-      HealthAlertTone.structural => const _HealthAlertStyle(
-        background: AppColors.surfaceMuted,
-        border: AppColors.line,
-        foreground: AppColors.budgetFixed,
+      HealthAlertTone.structural => _HealthAlertStyle(
+        background: colorScheme.surfaceContainerLow,
+        border: colorScheme.outlineVariant,
+        foreground: colorScheme.onSurfaceVariant,
         icon: Icons.account_tree_outlined,
       ),
-      HealthAlertTone.review => const _HealthAlertStyle(
-        background: Color(0xFFF4F1F7),
-        border: Color(0xFFD8D0E2),
-        foreground: AppColors.review,
+      HealthAlertTone.review => _HealthAlertStyle(
+        background: colorScheme.tertiaryContainer,
+        border: colorScheme.tertiary.withValues(alpha: 0.45),
+        foreground: colorScheme.onTertiaryContainer,
         icon: Icons.tune,
       ),
-      HealthAlertTone.educational => const _HealthAlertStyle(
-        background: Color(0xFFF7F3EA),
-        border: Color(0xFFE3D4B8),
-        foreground: AppColors.near,
+      HealthAlertTone.educational => _HealthAlertStyle(
+        background: colorScheme.primaryContainer,
+        border: colorScheme.primary.withValues(alpha: 0.45),
+        foreground: colorScheme.onPrimaryContainer,
         icon: Icons.school_outlined,
       ),
-      HealthAlertTone.info => const _HealthAlertStyle(
-        background: AppColors.accentMuted,
-        border: AppColors.accentEdge,
-        foreground: AppColors.accent,
+      HealthAlertTone.info => _HealthAlertStyle(
+        background: colorScheme.secondaryContainer,
+        border: colorScheme.secondary.withValues(alpha: 0.45),
+        foreground: colorScheme.onSecondaryContainer,
         icon: Icons.info_outline,
       ),
     };

@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/formatters/money_formatter.dart';
 import '../../../core/privacy/privacy_mode_provider.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../models/money.dart';
 
 class MoneyDisplay extends ConsumerWidget {
@@ -25,6 +24,7 @@ class MoneyDisplay extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final hidden = ref.watch(privacyModeProvider);
+    final colorScheme = Theme.of(context).colorScheme;
     final text = switch (amount) {
       final Money money => MoneyFormatter.format(
         money,
@@ -44,7 +44,7 @@ class MoneyDisplay extends ConsumerWidget {
       maxLines: 1,
       overflow: TextOverflow.ellipsis,
       style: TextStyle(
-        color: muted ? AppColors.textTertiary : AppColors.textPrimary,
+        color: muted ? colorScheme.onSurfaceVariant : colorScheme.onSurface,
         fontSize: size ?? 24,
         fontFeatures: const [FontFeature.tabularFigures()],
         fontWeight: weight ?? FontWeight.w600,

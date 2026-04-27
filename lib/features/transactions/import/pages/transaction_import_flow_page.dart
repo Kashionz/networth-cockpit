@@ -23,34 +23,36 @@ class TransactionImportFlowPage extends ConsumerWidget {
       appBar: AppBar(title: const Text('信用卡帳單匯入')),
       body: SafeArea(
         child: switch (state.currentStep) {
-          ImportStep.selectingCard => _StepScaffold(
-            title: '選擇信用卡',
-            description: '先選擇這份帳單所屬的信用卡，後續會依卡片整理匯入紀錄。',
-            children: [
-              _InfoPanel(
-                icon: Icons.credit_card_outlined,
-                title: '國泰 CUBE',
-                description: 'MVP 範例卡片',
-              ),
-              const SizedBox(height: AppSpacing.md),
-              FilledButton(
-                onPressed: () => controller.selectCard('國泰 CUBE'),
-                child: const Text('選擇卡片'),
-              ),
-            ],
+          ImportStep.selectingCard => _CardSelectionStep(
+            options: state.cardOptions,
+            onSelect: controller.selectCard,
           ),
           ImportStep.uploading => _StepScaffold(
             title: '上傳帳單',
-            description: '${state.selectedCard ?? '信用卡'} 已選好，先用範例檔案驗證流程。',
+            description:
+                '${state.selectedCard ?? '信用卡'} 已選好，請上傳檔案路徑或貼上 CSV 內容。',
             children: [
               UploadDropZone(
+                onLoadFromPath: controller.submitCsvPath,
+                onSubmitCsvContent: controller.submitCsvContent,
                 onSelectSampleFile: controller.useSampleFile,
-                statusLabel: '等待選擇檔案',
+                statusLabel: state.uploadStatusLabel,
               ),
               const SizedBox(height: AppSpacing.md),
-              TextButton(
-                onPressed: controller.markFileUnableToParse,
-                child: const Text('這份檔案暫時無法解析'),
+              Wrap(
+                spacing: AppSpacing.sm,
+                runSpacing: AppSpacing.sm,
+                children: [
+                  OutlinedButton.icon(
+                    onPressed: controller.restart,
+                    icon: const Icon(Icons.arrow_back_outlined),
+                    label: const Text('重新選擇卡片'),
+                  ),
+                  TextButton(
+                    onPressed: controller.markFileUnableToParse,
+                    child: const Text('這份檔案暫時無法解析'),
+                  ),
+                ],
               ),
             ],
           ),
@@ -63,6 +65,11 @@ class TransactionImportFlowPage extends ConsumerWidget {
               FilledButton(
                 onPressed: controller.startParsing,
                 child: const Text('開始解析'),
+              ),
+              const SizedBox(height: AppSpacing.sm),
+              TextButton(
+                onPressed: controller.backToUpload,
+                child: const Text('返回上一步'),
               ),
             ],
           ),
@@ -84,27 +91,53 @@ class TransactionImportFlowPage extends ConsumerWidget {
           ),
           ImportStep.confirming => _StepScaffold(
             title: '寫入前確認',
-            description: '分類建議已整理完成，確認後會寫入本月現金流。',
+            description: '分類建議已整理完成，確認後會寫入 transactions 與 card_statements。',
             children: [
+              if (state.periodStart != null && state.periodEnd != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    '帳單區間：${_formatDate(state.periodStart!)} ~ ${_formatDate(state.periodEnd!)}',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+              if (state.skippedRowCount > 0)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: Text(
+                    '已略過 ${state.skippedRowCount} 列無效資料',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                ),
               ImportSummaryBand(
                 writeCount: state.writeCount,
                 budgetImpacts: state.budgetImpacts,
               ),
               const SizedBox(height: AppSpacing.md),
               FilledButton(
-                onPressed: controller.viewWriteSummary,
-                child: const Text('完成寫入'),
+                onPressed: state.isWriting
+                    ? null
+                    : () {
+                        controller.writeImportedRows();
+                      },
+                child: Text(state.isWriting ? '寫入中...' : '完成寫入'),
               ),
             ],
           ),
           ImportStep.completed => _StepScaffold(
             title: '完成匯入',
-            description: '本月帳單已匯入，下一次相同商家會更快分類。',
+            description: state.completionMessage ?? '本月帳單已匯入，下一次相同商家會更快分類。',
             children: [
-              const _InfoPanel(
-                icon: Icons.check_circle_outline,
-                title: '已整理完成',
-                description: '可以回到交易列表查看匯入結果',
+              _InfoPanel(
+                icon: state.usedSupabaseFallback
+                    ? Icons.info_outline
+                    : Icons.check_circle_outline,
+                title: state.usedSupabaseFallback ? '已完成流程（Fallback）' : '已整理完成',
+                description: state.usedSupabaseFallback
+                    ? '目前已完成審核流程，但尚未成功寫入雲端。'
+                    : '可以回到交易列表查看匯入結果。',
               ),
               const SizedBox(height: AppSpacing.md),
               OutlinedButton(
@@ -123,7 +156,7 @@ class TransactionImportFlowPage extends ConsumerWidget {
               const _InfoPanel(
                 icon: Icons.description_outlined,
                 title: '檔案格式需要再確認',
-                description: '目前 MVP 先支援乾淨的 CSV 欄位',
+                description: '目前支援一般信用卡 CSV 欄位（日期/商家/金額）。',
               ),
               const SizedBox(height: AppSpacing.md),
               FilledButton(
@@ -134,6 +167,39 @@ class TransactionImportFlowPage extends ConsumerWidget {
           ),
         },
       ),
+    );
+  }
+}
+
+class _CardSelectionStep extends StatelessWidget {
+  const _CardSelectionStep({required this.options, required this.onSelect});
+
+  final List<ImportCardOption> options;
+  final void Function(ImportCardOption card) onSelect;
+
+  @override
+  Widget build(BuildContext context) {
+    return _StepScaffold(
+      title: '選擇信用卡',
+      description: '先選擇這份帳單所屬的信用卡，後續會依卡片整理匯入紀錄。',
+      children: [
+        for (final option in options) ...[
+          _InfoPanel(
+            icon: Icons.credit_card_outlined,
+            title: option.name,
+            description: option.helperText,
+          ),
+          const SizedBox(height: AppSpacing.sm),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: FilledButton(
+              onPressed: () => onSelect(option),
+              child: const Text('選擇卡片'),
+            ),
+          ),
+          if (option != options.last) const SizedBox(height: AppSpacing.md),
+        ],
+      ],
     );
   }
 }
@@ -458,4 +524,10 @@ class _EmptyReviewState extends StatelessWidget {
       ),
     );
   }
+}
+
+String _formatDate(DateTime value) {
+  final month = value.month.toString().padLeft(2, '0');
+  final day = value.day.toString().padLeft(2, '0');
+  return '${value.year}/$month/$day';
 }

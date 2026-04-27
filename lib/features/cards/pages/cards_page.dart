@@ -88,7 +88,9 @@ class CardsPage extends ConsumerWidget {
                   CreditCardListItem(
                     card: entry.$2,
                     onTap: () => _openCardDetail(context, entry.$2),
-                    onDelete: () => controller.deleteCard(entry.$2.id),
+                    onDelete: () {
+                      controller.deleteCard(entry.$2.id);
+                    },
                   ),
                   if (entry.$1 != sortedCards.length - 1)
                     const SizedBox(height: AppSpacing.xs),

@@ -10,7 +10,7 @@ void main() {
     addTearDown(container.dispose);
 
     final state = container.read(transactionsControllerProvider);
-    expect(state.lastUsedSourceAccount, '王道銀行帳戶');
+    expect(state.lastUsedSourceAccount, '國泰 CUBE');
     expect(state.sourceAccounts, contains(state.lastUsedSourceAccount));
   });
 
@@ -55,7 +55,7 @@ void main() {
       expect(find.text('來源帳戶'), findsOneWidget);
       expect(find.text('備註'), findsOneWidget);
       expect(find.textContaining('小額現金支出可以先略過'), findsOneWidget);
-      expect(find.text('王道銀行帳戶'), findsOneWidget);
+      expect(find.text('國泰 CUBE'), findsOneWidget);
     },
   );
 

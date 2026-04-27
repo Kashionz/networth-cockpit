@@ -4,9 +4,36 @@ import '../../../data/repositories/budget_repository.dart';
 import '../../../shared/models/money.dart';
 import '../../../shared/models/month_key.dart';
 
+final budgetControllerNotifierProvider =
+    NotifierProvider<BudgetController, BudgetMonth>(BudgetController.new);
+
 final budgetControllerProvider = Provider<BudgetMonth>(
-  (ref) => ref.watch(budgetMonthProvider),
+  (ref) => ref.watch(budgetControllerNotifierProvider),
 );
+
+class BudgetController extends Notifier<BudgetMonth> {
+  late final BudgetRepository _repository;
+
+  @override
+  BudgetMonth build() {
+    _repository = ref.read(budgetRepositoryProvider);
+    Future<void>.microtask(reload);
+    return _repository.getCurrentMonth();
+  }
+
+  Future<void> reload() async {
+    final repository = _repository;
+    if (repository is! RefreshableBudgetRepository) {
+      return;
+    }
+
+    final month = await repository.fetchCurrentMonth();
+    if (!ref.mounted) {
+      return;
+    }
+    state = month;
+  }
+}
 
 final budgetHistoryControllerProvider = Provider<List<BudgetMonth>>((ref) {
   final currentMonth = ref.watch(budgetControllerProvider);

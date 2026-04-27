@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:networth_cockpit/data/repositories/portfolio_repository.dart';
 import 'package:networth_cockpit/features/portfolio/controllers/portfolio_controller.dart';
 import 'package:networth_cockpit/features/portfolio/models/asset_allocation.dart';
 import 'package:networth_cockpit/features/portfolio/models/contribution_direction.dart';
@@ -41,7 +42,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
-          portfolioControllerProvider.overrideWithValue(_fakePortfolioSnapshot),
+          portfolioRepositoryProvider.overrideWithValue(
+            _FakePortfolioRepository(snapshot: _fakePortfolioSnapshot),
+          ),
         ],
         child: const MaterialApp(home: Scaffold(body: AllocationPage())),
       ),
@@ -66,6 +69,36 @@ void main() {
     expect(find.textContaining('賣出'), findsNothing);
     expect(find.textContaining('0050'), findsNothing);
   });
+}
+
+class _FakePortfolioRepository implements PortfolioRepository {
+  const _FakePortfolioRepository({required this.snapshot});
+
+  final PortfolioAllocationViewModel snapshot;
+
+  @override
+  Future<void> refresh() async {}
+
+  @override
+  List<AssetAllocation> getAllocations() => snapshot.allocations;
+
+  @override
+  List<ContributionDirection> getContributionDirections() {
+    return snapshot.contributionDirections;
+  }
+
+  @override
+  double getLargestHoldingConcentration() {
+    return snapshot.largestHoldingConcentration;
+  }
+
+  @override
+  double getTopFiveConcentration() => snapshot.topFiveConcentration;
+
+  @override
+  List<Holding> getTopHoldings({int limit = 5}) {
+    return snapshot.topHoldings.take(limit).toList(growable: false);
+  }
 }
 
 const _fakePortfolioSnapshot = PortfolioAllocationViewModel(

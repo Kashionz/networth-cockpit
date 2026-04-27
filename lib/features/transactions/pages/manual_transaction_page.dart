@@ -52,13 +52,13 @@ class _ManualTransactionPageState extends ConsumerState<ManualTransactionPage> {
     }
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
     final amount = num.parse(_amountController.text.trim());
-    ref
+    await ref
         .read(transactionsControllerProvider.notifier)
         .addManualRecord(
           amount: amount,
@@ -191,7 +191,9 @@ class _ManualTransactionPageState extends ConsumerState<ManualTransactionPage> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: FilledButton.icon(
-                        onPressed: _submit,
+                        onPressed: () {
+                          _submit();
+                        },
                         icon: const Icon(Icons.check),
                         label: const Text('30 秒快速記錄'),
                       ),

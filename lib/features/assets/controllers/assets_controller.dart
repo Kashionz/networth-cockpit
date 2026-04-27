@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../../shared/models/money.dart';
+import '../../../data/repositories/assets_repository.dart';
+import '../../../shared/models/money.dart';
 import '../models/asset.dart';
 import '../models/asset_type.dart';
 
@@ -8,100 +9,111 @@ final assetsControllerProvider =
     NotifierProvider<AssetsController, List<Asset>>(AssetsController.new);
 
 class AssetsController extends Notifier<List<Asset>> {
-  int _idSeed = _seedAssets.length + 1;
+  late final AssetsRepository _repository;
 
   @override
   List<Asset> build() {
-    return List<Asset>.unmodifiable(_seedAssets);
+    _repository = ref.read(assetsRepositoryProvider);
+    Future<void>.microtask(reload);
+    return List<Asset>.unmodifiable(_repository.fallbackAssets);
   }
 
-  void addAsset({
+  Future<void> reload() async {
+    final loaded = await _repository.fetchAssets();
+    if (!ref.mounted) {
+      return;
+    }
+    state = List<Asset>.unmodifiable(loaded);
+  }
+
+  Future<void> addAsset({
     required String name,
     required AssetType type,
     required Money value,
-  }) {
-    final next = [
-      Asset(
-        id: 'asset-${_idSeed++}',
-        name: name,
-        type: type,
-        value: value,
-        updatedAt: DateTime.now(),
-      ),
-      ...state,
-    ];
+    String? symbol,
+    num? quantity,
+    Money? costBasis,
+    String? currency,
+    String? market,
+  }) async {
+    final normalizedCurrency =
+        (currency ?? value.currencyCode).trim().toUpperCase();
+    final normalizedQuantity =
+        quantity == null || quantity <= 0 ? 1 : quantity;
+    final created = Asset(
+      id: 'asset-${DateTime.now().microsecondsSinceEpoch}',
+      name: name,
+      type: type,
+      value: Money(value.amount, currencyCode: normalizedCurrency),
+      symbol: symbol,
+      quantity: normalizedQuantity,
+      costBasis:
+          costBasis ??
+          Money(value.amount, currencyCode: normalizedCurrency),
+      currency: normalizedCurrency,
+      market:
+          (market == null || market.trim().isEmpty)
+              ? _defaultMarketForType(type)
+              : market.trim().toUpperCase(),
+      updatedAt: DateTime.now().toUtc(),
+    );
 
+    state = List<Asset>.unmodifiable([created, ...state]);
+    final next = await _repository.createAsset(created);
+    if (!ref.mounted) {
+      return;
+    }
     state = List<Asset>.unmodifiable(next);
   }
 
-  void updateAsset(Asset updated) {
+  Future<void> updateAsset(Asset updated) async {
+    final refreshed = updated.copyWith(updatedAt: DateTime.now().toUtc());
     state = List<Asset>.unmodifiable([
       for (final asset in state)
-        if (asset.id == updated.id) updated else asset,
+        if (asset.id == refreshed.id) refreshed else asset,
     ]);
+    final next = await _repository.updateAsset(refreshed);
+    if (!ref.mounted) {
+      return;
+    }
+    state = List<Asset>.unmodifiable(next);
   }
 
-  void quickIncreaseValue(String assetId, {num delta = 1000}) {
-    state = List<Asset>.unmodifiable([
-      for (final asset in state)
-        if (asset.id == assetId)
-          asset.copyWith(
-            value: Money.twd(asset.value.amount + delta),
-            updatedAt: DateTime.now(),
-          )
-        else
-          asset,
-    ]);
+  Future<void> quickIncreaseValue(String assetId, {num delta = 1000}) async {
+    Asset? target;
+    for (final asset in state) {
+      if (asset.id == assetId) {
+        target = asset;
+        break;
+      }
+    }
+    if (target == null) {
+      return;
+    }
+
+    await updateAsset(
+      target.copyWith(
+        value: Money(
+          target.value.amount + delta,
+          currencyCode: target.currency,
+        ),
+      ),
+    );
   }
 
-  void deleteAsset(String assetId) {
+  Future<void> deleteAsset(String assetId) async {
     state = List<Asset>.unmodifiable(
       state.where((asset) => asset.id != assetId),
     );
+    final next = await _repository.deleteAsset(assetId);
+    if (!ref.mounted) {
+      return;
+    }
+    state = List<Asset>.unmodifiable(next);
   }
 }
 
-final _seedAssets = [
-  Asset(
-    id: 'asset-1',
-    name: '台幣活存',
-    type: AssetType.bankDeposit,
-    value: const Money.twd(420000),
-    updatedAt: DateTime(2026, 4, 25),
-  ),
-  Asset(
-    id: 'asset-2',
-    name: '緊急預備金',
-    type: AssetType.cash,
-    value: const Money.twd(90000),
-    updatedAt: DateTime(2026, 4, 25),
-  ),
-  Asset(
-    id: 'asset-3',
-    name: '0050 ETF',
-    type: AssetType.stockEtf,
-    value: const Money.twd(980000),
-    updatedAt: DateTime(2026, 4, 25),
-  ),
-  Asset(
-    id: 'asset-4',
-    name: '美國公債 ETF',
-    type: AssetType.bond,
-    value: const Money.twd(320000),
-    updatedAt: DateTime(2026, 4, 25),
-  ),
-  Asset(
-    id: 'asset-5',
-    name: '勞退自提帳戶',
-    type: AssetType.retirement,
-    value: const Money.twd(230000),
-    updatedAt: DateTime(2026, 4, 25),
-  ),
-  Asset(
-    id: 'asset-6',
-    name: '通勤車',
-    type: AssetType.vehicle,
-    value: const Money.twd(180000),
-    updatedAt: DateTime(2026, 4, 25),
-  ),
-];
+String _defaultMarketForType(AssetType type) => switch (type) {
+  AssetType.crypto => 'CRYPTO',
+  _ => 'TW',
+};

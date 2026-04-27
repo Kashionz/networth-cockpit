@@ -4,8 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../core/privacy/privacy_mode_provider.dart';
 import '../../../core/routing/route_paths.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
+import '../../../core/theme/theme_mode_provider.dart';
 
 class AppShell extends ConsumerWidget {
   const AppShell({required this.location, required this.child, super.key});
@@ -22,8 +22,8 @@ class AppShell extends ConsumerWidget {
           return Scaffold(
             body: Row(
               children: [
-                _DesktopSidebar(location: location),
-                Expanded(child: child),
+                RepaintBoundary(child: _DesktopSidebar(location: location)),
+                Expanded(child: RepaintBoundary(child: child)),
               ],
             ),
           );
@@ -32,9 +32,9 @@ class AppShell extends ConsumerWidget {
         return Scaffold(
           appBar: AppBar(
             title: const Text('NetWorth Cockpit'),
-            actions: const [_PrivacyIconButton()],
+            actions: const [_ThemeIconButton(), _PrivacyIconButton()],
           ),
-          body: child,
+          body: RepaintBoundary(child: child),
           bottomNavigationBar: _MobileBottomNav(location: location),
         );
       },
@@ -49,9 +49,11 @@ class _DesktopSidebar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
       width: 244,
-      color: AppColors.surfaceMuted,
+      color: colorScheme.surfaceContainerLow,
       padding: const EdgeInsets.all(AppSpacing.md),
       child: SafeArea(
         child: Column(
@@ -62,6 +64,8 @@ class _DesktopSidebar extends StatelessWidget {
             for (final item in _navItems)
               _NavButton(item: item, selected: _matches(location, item.path)),
             const Spacer(),
+            const _ThemeSwitchTile(),
+            const SizedBox(height: AppSpacing.sm),
             const _PrivacyIconButton(expanded: true),
           ],
         ),
@@ -80,10 +84,16 @@ class _MobileBottomNav extends StatelessWidget {
     final selectedIndex = _mobileItems.indexWhere(
       (item) => _matches(location, item.path),
     );
+    final effectiveIndex = selectedIndex < 0 ? 0 : selectedIndex;
 
     return NavigationBar(
-      selectedIndex: selectedIndex < 0 ? 0 : selectedIndex,
-      onDestinationSelected: (index) => context.go(_mobileItems[index].path),
+      selectedIndex: effectiveIndex,
+      onDestinationSelected: (index) {
+        if (index == effectiveIndex) {
+          return;
+        }
+        context.go(_mobileItems[index].path);
+      },
       destinations: [
         for (final item in _mobileItems)
           NavigationDestination(icon: Icon(item.icon), label: item.label),
@@ -97,6 +107,8 @@ class _BrandHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Row(
       children: [
         Container(
@@ -104,19 +116,22 @@ class _BrandHeader extends StatelessWidget {
           height: 28,
           alignment: Alignment.center,
           decoration: BoxDecoration(
-            color: AppColors.textPrimary,
+            color: colorScheme.primary,
             borderRadius: BorderRadius.circular(6),
           ),
-          child: const Text(
+          child: Text(
             'N',
-            style: TextStyle(color: Colors.white, fontWeight: FontWeight.w700),
+            style: TextStyle(
+              color: colorScheme.onPrimary,
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
         const SizedBox(width: AppSpacing.sm),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            children: const [
+            children: [
               Text(
                 'NetWorth Cockpit',
                 maxLines: 1,
@@ -127,7 +142,10 @@ class _BrandHeader extends StatelessWidget {
                 '淨值駕駛艙',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: AppColors.textTertiary, fontSize: 12),
+                style: TextStyle(
+                  color: colorScheme.onSurfaceVariant,
+                  fontSize: 12,
+                ),
               ),
             ],
           ),
@@ -145,23 +163,97 @@ class _NavButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.xs),
       child: TextButton.icon(
-        onPressed: () => context.go(item.path),
+        onPressed: selected ? null : () => context.go(item.path),
         icon: Icon(item.icon, size: 18),
         label: Align(alignment: Alignment.centerLeft, child: Text(item.label)),
         style: TextButton.styleFrom(
           foregroundColor: selected
-              ? AppColors.textPrimary
-              : AppColors.textTertiary,
-          backgroundColor: selected ? AppColors.surface : Colors.transparent,
+              ? colorScheme.onSurface
+              : colorScheme.onSurfaceVariant,
+          backgroundColor: selected
+              ? colorScheme.surfaceContainerHighest
+              : Colors.transparent,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           padding: const EdgeInsets.symmetric(
             horizontal: AppSpacing.sm,
             vertical: AppSpacing.sm,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ThemeIconButton extends ConsumerWidget {
+  const _ThemeIconButton();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = _isDarkMode(themeMode, Theme.of(context).brightness);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return IconButton(
+      tooltip: isDark ? '切換為亮色模式' : '切換為暗色模式',
+      onPressed: () {
+        ref.read(themeModeControllerProvider.notifier).setThemeMode(
+          isDark ? ThemeMode.light : ThemeMode.dark,
+        );
+      },
+      icon: Icon(
+        isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
+        color: colorScheme.onSurfaceVariant,
+      ),
+    );
+  }
+}
+
+class _ThemeSwitchTile extends ConsumerWidget {
+  const _ThemeSwitchTile();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeMode = ref.watch(themeModeProvider);
+    final isDark = _isDarkMode(themeMode, Theme.of(context).brightness);
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: colorScheme.outlineVariant),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            isDark ? Icons.dark_mode_outlined : Icons.light_mode_outlined,
+            size: 18,
+            color: colorScheme.onSurfaceVariant,
+          ),
+          const SizedBox(width: AppSpacing.xs),
+          Expanded(
+            child: Text(
+              '暗色模式',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
+              ),
+            ),
+          ),
+          Switch(
+            value: isDark,
+            onChanged: (value) {
+              ref
+                  .read(themeModeControllerProvider.notifier)
+                  .setThemeMode(value ? ThemeMode.dark : ThemeMode.light);
+            },
+          ),
+        ],
       ),
     );
   }
@@ -192,6 +284,16 @@ class _PrivacyIconButton extends ConsumerWidget {
             icon: Icon(hidden ? Icons.visibility_off : Icons.visibility),
           );
   }
+}
+
+bool _isDarkMode(ThemeMode mode, Brightness brightness) {
+  if (mode == ThemeMode.dark) {
+    return true;
+  }
+  if (mode == ThemeMode.light) {
+    return false;
+  }
+  return brightness == Brightness.dark;
 }
 
 class _NavItem {

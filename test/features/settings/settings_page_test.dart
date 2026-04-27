@@ -52,7 +52,9 @@ void main() {
   });
 
   testWidgets('Export page offers CSV and JSON format options', (tester) async {
-    await tester.pumpWidget(const MaterialApp(home: ExportPage()));
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: ExportPage())),
+    );
 
     expect(find.text('CSV'), findsOneWidget);
     expect(find.text('JSON'), findsOneWidget);
@@ -62,15 +64,17 @@ void main() {
   testWidgets('Account page keeps deletion action visible and calm', (
     tester,
   ) async {
-    await tester.pumpWidget(const MaterialApp(home: AccountPage()));
+    await tester.pumpWidget(
+      const ProviderScope(child: MaterialApp(home: AccountPage())),
+    );
 
     expect(find.text('隱私政策'), findsOneWidget);
     expect(find.text('使用者條款'), findsOneWidget);
     expect(find.text('AI 解讀模板'), findsOneWidget);
     expect(find.text('提醒與推播'), findsOneWidget);
     expect(find.text('安裝 App（PWA）'), findsOneWidget);
-    expect(find.text('刪除帳號'), findsOneWidget);
-    expect(find.text('若暫時不需要此服務,可先匯出資料後再申請刪除。'), findsOneWidget);
+    expect(find.text('申請刪除'), findsOneWidget);
+    expect(find.text('可申請刪除並保留 30 天緩衝期，期間可取消。'), findsOneWidget);
     expect(find.textContaining('危險'), findsNothing);
     expect(find.textContaining('警告'), findsNothing);
   });

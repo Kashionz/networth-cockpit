@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 
 class DisclaimerBanner extends StatelessWidget {
@@ -10,18 +9,20 @@ class DisclaimerBanner extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
-        color: AppColors.accentMuted,
-        border: Border.all(color: AppColors.accentEdge),
+        color: colorScheme.secondaryContainer,
+        border: Border.all(color: colorScheme.outlineVariant),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         text,
         style: Theme.of(context).textTheme.bodySmall?.copyWith(
-          color: AppColors.textSecondary,
+          color: colorScheme.onSecondaryContainer,
           letterSpacing: 0,
         ),
       ),

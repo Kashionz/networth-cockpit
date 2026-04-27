@@ -33,12 +33,12 @@ class _AddCardPageState extends ConsumerState<AddCardPage> {
     super.dispose();
   }
 
-  void _submit() {
+  Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
 
-    ref
+    await ref
         .read(cardsControllerProvider.notifier)
         .addCard(
           displayName: _nameController.text.trim(),
@@ -164,7 +164,9 @@ class _AddCardPageState extends ConsumerState<AddCardPage> {
                     Align(
                       alignment: Alignment.centerRight,
                       child: FilledButton.icon(
-                        onPressed: _submit,
+                        onPressed: () {
+                          _submit();
+                        },
                         icon: const Icon(Icons.check),
                         label: const Text('建立卡片'),
                       ),

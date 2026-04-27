@@ -1,3 +1,4 @@
+import 'package:flutter/widgets.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../features/assets/pages/add_asset_page.dart';
@@ -43,124 +44,83 @@ GoRouter createAppRouter({String initialLocation = RoutePaths.dashboard}) {
           return AppShell(location: state.uri.path, child: child);
         },
         routes: [
-          GoRoute(
-            path: RoutePaths.dashboard,
-            builder: (context, state) => const DashboardPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.authLogin,
-            builder: (context, state) => const LoginPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.authSignup,
-            builder: (context, state) => const SignupPage(),
-          ),
-          GoRoute(
+          _route(path: RoutePaths.dashboard, child: const DashboardPage()),
+          _route(path: RoutePaths.authLogin, child: const LoginPage()),
+          _route(path: RoutePaths.authSignup, child: const SignupPage()),
+          _route(
             path: RoutePaths.onboardingWelcome,
-            builder: (context, state) => const WelcomePage(),
+            child: const WelcomePage(),
           ),
-          GoRoute(
+          _route(
             path: RoutePaths.onboardingRiskQuestionnaire,
-            builder: (context, state) => const RiskQuestionnairePage(),
+            child: const RiskQuestionnairePage(),
           ),
-          GoRoute(
+          _route(
             path: RoutePaths.onboardingTargetAllocation,
-            builder: (context, state) => const TargetAllocationPage(),
+            child: const TargetAllocationPage(),
           ),
-          GoRoute(
+          _route(
             path: RoutePaths.onboardingBudgetSetup,
-            builder: (context, state) => const BudgetSetupPage(),
+            child: const BudgetSetupPage(),
           ),
-          GoRoute(
+          _route(
             path: RoutePaths.onboardingFirstAsset,
-            builder: (context, state) => const FirstAssetPage(),
+            child: const FirstAssetPage(),
           ),
-          GoRoute(
-            path: RoutePaths.assets,
-            builder: (context, state) => const AssetsPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.assetsAdd,
-            builder: (context, state) => const AddAssetPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.transactions,
-            builder: (context, state) => const TransactionsPage(),
-          ),
-          GoRoute(
+          _route(path: RoutePaths.assets, child: const AssetsPage()),
+          _route(path: RoutePaths.assetsAdd, child: const AddAssetPage()),
+          _route(path: RoutePaths.transactions, child: const TransactionsPage()),
+          _route(
             path: RoutePaths.transactionsImport,
-            builder: (context, state) => const TransactionImportFlowPage(),
+            child: const TransactionImportFlowPage(),
           ),
-          GoRoute(
+          _route(
             path: RoutePaths.transactionsManual,
-            builder: (context, state) => const ManualTransactionPage(),
+            child: const ManualTransactionPage(),
           ),
-          GoRoute(
-            path: RoutePaths.cards,
-            builder: (context, state) => const CardsPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.cardsAdd,
-            builder: (context, state) => const AddCardPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.budget,
-            builder: (context, state) => const BudgetPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.budgetHistory,
-            builder: (context, state) => const BudgetHistoryPage(),
-          ),
-          GoRoute(
+          _route(path: RoutePaths.cards, child: const CardsPage()),
+          _route(path: RoutePaths.cardsAdd, child: const AddCardPage()),
+          _route(path: RoutePaths.budget, child: const BudgetPage()),
+          _route(path: RoutePaths.budgetHistory, child: const BudgetHistoryPage()),
+          _route(
             path: RoutePaths.portfolioAllocation,
-            builder: (context, state) => const AllocationPage(),
+            child: const AllocationPage(),
           ),
-          GoRoute(
+          _route(
             path: RoutePaths.portfolioPerformance,
-            builder: (context, state) => const PortfolioPerformancePage(),
+            child: const PortfolioPerformancePage(),
           ),
-          GoRoute(
-            path: RoutePaths.insights,
-            builder: (context, state) => const InsightsPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.settingsPrivacy,
-            builder: (context, state) => const PrivacyPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.settingsProfile,
-            builder: (context, state) => const ProfilePage(),
-          ),
-          GoRoute(
-            path: RoutePaths.settingsExport,
-            builder: (context, state) => const ExportPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.settingsAccount,
-            builder: (context, state) => const AccountPage(),
-          ),
-          GoRoute(
+          _route(path: RoutePaths.insights, child: const InsightsPage()),
+          _route(path: RoutePaths.settingsPrivacy, child: const PrivacyPage()),
+          _route(path: RoutePaths.settingsProfile, child: const ProfilePage()),
+          _route(path: RoutePaths.settingsExport, child: const ExportPage()),
+          _route(path: RoutePaths.settingsAccount, child: const AccountPage()),
+          _route(
             path: RoutePaths.settingsNotifications,
-            builder: (context, state) => const NotificationSettingsPage(),
+            child: const NotificationSettingsPage(),
           ),
-          GoRoute(
+          _route(
             path: RoutePaths.settingsPwaInstall,
-            builder: (context, state) => const PwaInstallPage(),
+            child: const PwaInstallPage(),
           ),
-          GoRoute(
-            path: RoutePaths.legalPrivacy,
-            builder: (context, state) => const PrivacyPolicyPage(),
-          ),
-          GoRoute(
-            path: RoutePaths.legalTerms,
-            builder: (context, state) => const TermsOfServicePage(),
-          ),
-          GoRoute(
+          _route(path: RoutePaths.legalPrivacy, child: const PrivacyPolicyPage()),
+          _route(path: RoutePaths.legalTerms, child: const TermsOfServicePage()),
+          _route(
             path: RoutePaths.legalAiTemplate,
-            builder: (context, state) => const AiDisclosureTemplatePage(),
+            child: const AiDisclosureTemplatePage(),
           ),
         ],
       ),
     ],
+  );
+}
+
+GoRoute _route({required String path, required Widget child}) {
+  return GoRoute(
+    path: path,
+    pageBuilder: (context, state) => NoTransitionPage<void>(
+      key: state.pageKey,
+      child: child,
+    ),
   );
 }

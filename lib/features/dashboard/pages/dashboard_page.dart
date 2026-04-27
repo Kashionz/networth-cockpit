@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/routing/route_paths.dart';
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 import '../controllers/dashboard_controller.dart';
 import '../models/dashboard_snapshot.dart';
@@ -57,6 +56,8 @@ class _PageHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -72,7 +73,7 @@ class _PageHeader extends StatelessWidget {
           monthLabel,
           style: Theme.of(
             context,
-          ).textTheme.bodyMedium?.copyWith(color: AppColors.textTertiary),
+          ).textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
         ),
       ],
     );
@@ -150,6 +151,8 @@ class _SavingsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -161,7 +164,7 @@ class _SavingsPanel extends StatelessWidget {
             style: Theme.of(context).textTheme.displaySmall?.copyWith(
               fontWeight: FontWeight.w700,
               letterSpacing: 0,
-              color: AppColors.textPrimary,
+              color: colorScheme.onSurface,
             ),
           ),
           const SizedBox(height: AppSpacing.xs),
@@ -169,7 +172,7 @@ class _SavingsPanel extends StatelessWidget {
             '目標 ${snapshot.savingsTarget.toStringAsFixed(0)}%,本月節奏穩定',
             style: Theme.of(
               context,
-            ).textTheme.bodyMedium?.copyWith(color: AppColors.textTertiary),
+            ).textTheme.bodyMedium?.copyWith(color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: AppSpacing.md),
           ProgressBar(
@@ -191,6 +194,8 @@ class _NetWorthPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -201,7 +206,7 @@ class _NetWorthPanel extends StatelessWidget {
           const SizedBox(height: AppSpacing.xs),
           Row(
             children: [
-              const Icon(Icons.trending_up, size: 16, color: AppColors.accent),
+              Icon(Icons.trending_up, size: 16, color: colorScheme.primary),
               const SizedBox(width: AppSpacing.xs),
               MoneyDisplay(
                 amount: snapshot.netWorthDelta,
@@ -209,9 +214,9 @@ class _NetWorthPanel extends StatelessWidget {
                 showSign: true,
                 muted: true,
               ),
-              const Text(
+              Text(
                 ' 較上月',
-                style: TextStyle(color: AppColors.textTertiary),
+                style: TextStyle(color: colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -230,6 +235,8 @@ class _BudgetPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -250,7 +257,7 @@ class _BudgetPanel extends StatelessWidget {
                 const SizedBox(width: AppSpacing.sm),
                 Text(
                   '${(item.used / item.limit * 100).round()}%',
-                  style: const TextStyle(color: AppColors.textTertiary),
+                  style: TextStyle(color: colorScheme.onSurfaceVariant),
                 ),
               ],
             ),
@@ -331,6 +338,8 @@ class _StatementPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return _Panel(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -339,9 +348,9 @@ class _StatementPanel extends StatelessWidget {
           const SizedBox(height: AppSpacing.sm),
           MoneyDisplay(amount: snapshot.statementSummary, size: 28),
           const SizedBox(height: AppSpacing.xs),
-          const Text(
+          Text(
             '結帳日後可匯入帳單,系統會先套用已記住的分類規則。',
-            style: TextStyle(color: AppColors.textTertiary),
+            style: TextStyle(color: colorScheme.onSurfaceVariant),
           ),
           const SizedBox(height: AppSpacing.sm),
           TextButton.icon(
@@ -349,7 +358,7 @@ class _StatementPanel extends StatelessWidget {
             icon: const Icon(Icons.upload_file, size: 18),
             label: const Text('匯入本期帳單'),
             style: TextButton.styleFrom(
-              foregroundColor: AppColors.textSecondary,
+              foregroundColor: colorScheme.primary,
               minimumSize: const Size(48, 48),
               padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
               alignment: Alignment.centerLeft,
@@ -384,10 +393,12 @@ class _PanelLabel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Text(
       text,
       style: Theme.of(context).textTheme.labelLarge?.copyWith(
-        color: AppColors.textSecondary,
+        color: colorScheme.onSurfaceVariant,
         fontWeight: FontWeight.w700,
         letterSpacing: 0,
       ),
@@ -403,6 +414,8 @@ class _LegendDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -412,7 +425,7 @@ class _LegendDot extends StatelessWidget {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: AppSpacing.xs),
-        Text(label, style: const TextStyle(color: AppColors.textTertiary)),
+        Text(label, style: TextStyle(color: colorScheme.onSurfaceVariant)),
       ],
     );
   }

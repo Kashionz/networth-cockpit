@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
 import '../../../core/theme/app_spacing.dart';
 
 class TrendSparkline extends StatelessWidget {
@@ -19,20 +19,22 @@ class TrendSparkline extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
     if (points.isEmpty) {
       return Container(
         height: height,
         alignment: Alignment.center,
         decoration: BoxDecoration(
-          color: AppColors.surfaceMuted,
+          color: colorScheme.surfaceContainerLow,
           borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: AppColors.line),
+          border: Border.all(color: colorScheme.outlineVariant),
         ),
         child: Text(
           emptyLabel,
           style: Theme.of(
             context,
-          ).textTheme.bodySmall?.copyWith(color: AppColors.textTertiary),
+          ).textTheme.bodySmall?.copyWith(color: colorScheme.onSurfaceVariant),
         ),
       );
     }
@@ -40,15 +42,29 @@ class TrendSparkline extends StatelessWidget {
     return SizedBox(
       height: height,
       width: double.infinity,
-      child: CustomPaint(painter: _TrendSparklinePainter(points)),
+      child: RepaintBoundary(
+        child: CustomPaint(
+          painter: _TrendSparklinePainter(
+            points: points,
+            fillColor: colorScheme.primaryContainer,
+            lineColor: colorScheme.primary,
+          ),
+        ),
+      ),
     );
   }
 }
 
 class _TrendSparklinePainter extends CustomPainter {
-  const _TrendSparklinePainter(this.points);
+  const _TrendSparklinePainter({
+    required this.points,
+    required this.fillColor,
+    required this.lineColor,
+  });
 
   final List<num> points;
+  final Color fillColor;
+  final Color lineColor;
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -58,10 +74,10 @@ class _TrendSparklinePainter extends CustomPainter {
 
     final values = points.map((point) => point.toDouble()).toList();
     final fillPaint = Paint()
-      ..color = AppColors.accentMuted
+      ..color = fillColor
       ..style = PaintingStyle.fill;
     final linePaint = Paint()
-      ..color = AppColors.accent
+      ..color = lineColor
       ..strokeWidth = 2
       ..strokeCap = StrokeCap.round
       ..strokeJoin = StrokeJoin.round
@@ -109,6 +125,8 @@ class _TrendSparklinePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _TrendSparklinePainter oldDelegate) {
-    return oldDelegate.points != points;
+    return !listEquals(oldDelegate.points, points) ||
+        oldDelegate.fillColor != fillColor ||
+        oldDelegate.lineColor != lineColor;
   }
 }

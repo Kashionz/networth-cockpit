@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/theme/app_colors.dart';
-
 enum ProgressTone { calm, near, review }
 
 class ProgressBar extends StatelessWidget {
@@ -22,6 +20,7 @@ class ProgressBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
     final ratio = max <= 0 ? 0.0 : (value / max).clamp(0.0, 1.0);
     final markerRatio = target == null || max <= 0
         ? null
@@ -38,16 +37,15 @@ class ProgressBar extends StatelessWidget {
               Container(
                 height: height,
                 decoration: BoxDecoration(
-                  color: AppColors.surfaceSoft,
+                  color: colorScheme.surfaceContainerHighest,
                   borderRadius: BorderRadius.circular(height),
                 ),
               ),
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 180),
+              Container(
                 height: height,
                 width: width * ratio,
                 decoration: BoxDecoration(
-                  color: _toneColor(tone),
+                  color: _toneColor(tone, colorScheme),
                   borderRadius: BorderRadius.circular(height),
                 ),
               ),
@@ -58,7 +56,7 @@ class ProgressBar extends StatelessWidget {
                     width: 2,
                     height: height + 8,
                     decoration: BoxDecoration(
-                      color: AppColors.textSecondary,
+                      color: colorScheme.onSurfaceVariant,
                       borderRadius: BorderRadius.circular(2),
                     ),
                   ),
@@ -70,11 +68,11 @@ class ProgressBar extends StatelessWidget {
     );
   }
 
-  Color _toneColor(ProgressTone tone) {
+  Color _toneColor(ProgressTone tone, ColorScheme colorScheme) {
     return switch (tone) {
-      ProgressTone.calm => AppColors.accent,
-      ProgressTone.near => AppColors.near,
-      ProgressTone.review => AppColors.review,
+      ProgressTone.calm => colorScheme.primary,
+      ProgressTone.near => colorScheme.tertiary,
+      ProgressTone.review => colorScheme.secondary,
     };
   }
 }
