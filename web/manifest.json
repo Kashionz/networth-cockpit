@@ -1,0 +1,75 @@
+{
+    "name": "NetWorth Cockpit",
+    "short_name": "NetWorth",
+    "id": "/",
+    "start_url": "/",
+    "scope": "/",
+    "display": "standalone",
+    "display_override": [
+        "window-controls-overlay",
+        "standalone",
+        "browser"
+    ],
+    "background_color": "#FAFAFA",
+    "theme_color": "#3A4A5C",
+    "description": "你的個人淨值與現金流駕駛艙，支援提醒、月度回顧與 AI 解讀。",
+    "orientation": "any",
+    "lang": "zh-Hant",
+    "categories": [
+        "finance",
+        "productivity"
+    ],
+    "prefer_related_applications": false,
+    "shortcuts": [
+        {
+            "name": "提醒設定",
+            "short_name": "提醒",
+            "description": "設定帳單、月底回顧與配置偏離提醒",
+            "url": "/settings/notifications",
+            "icons": [
+                {
+                    "src": "icons/Icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png"
+                }
+            ]
+        },
+        {
+            "name": "隱私政策",
+            "short_name": "隱私",
+            "description": "查看最新隱私政策",
+            "url": "/legal/privacy-policy",
+            "icons": [
+                {
+                    "src": "icons/Icon-192.png",
+                    "sizes": "192x192",
+                    "type": "image/png"
+                }
+            ]
+        }
+    ],
+    "icons": [
+        {
+            "src": "icons/Icon-192.png",
+            "sizes": "192x192",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-512.png",
+            "sizes": "512x512",
+            "type": "image/png"
+        },
+        {
+            "src": "icons/Icon-maskable-192.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "maskable"
+        },
+        {
+            "src": "icons/Icon-maskable-512.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "maskable"
+        }
+    ]
+}
