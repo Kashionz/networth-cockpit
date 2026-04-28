@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_env.dart';
 import '../../features/portfolio/models/asset_allocation.dart';
+import '../../features/portfolio/models/correlation_matrix.dart';
 import '../../features/portfolio/models/contribution_direction.dart';
 import '../../features/portfolio/models/holding.dart';
 import '../../shared/models/money.dart';
@@ -13,6 +14,7 @@ import '../services/supabase/supabase_client_factory.dart';
 import '../services/supabase/supabase_portfolio_service.dart';
 
 export '../../features/portfolio/models/asset_allocation.dart';
+export '../../features/portfolio/models/correlation_matrix.dart';
 export '../../features/portfolio/models/contribution_direction.dart';
 export '../../features/portfolio/models/holding.dart';
 
@@ -38,6 +40,10 @@ abstract interface class PortfolioRepository {
   double getTopFiveConcentration();
 
   double getLargestHoldingConcentration();
+
+  CorrelationMatrix getCorrelationMatrix();
+
+  List<HighCorrelationRisk> getHighCorrelationRisks({double threshold = 0.8});
 }
 
 class MockPortfolioRepository implements PortfolioRepository {
@@ -66,20 +72,29 @@ class MockPortfolioRepository implements PortfolioRepository {
   double getLargestHoldingConcentration() {
     return MockPortfolioData.largestHoldingConcentration;
   }
+
+  @override
+  CorrelationMatrix getCorrelationMatrix() =>
+      _PortfolioSnapshot.fromMock().correlationMatrix;
+
+  @override
+  List<HighCorrelationRisk> getHighCorrelationRisks({double threshold = 0.8}) {
+    return _PortfolioSnapshot.fromMock().highCorrelationRisks;
+  }
 }
 
 class PortfolioRepositoryImpl implements PortfolioRepository {
-  PortfolioRepositoryImpl({SupabasePortfolioService? remoteService})
+  PortfolioRepositoryImpl({PortfolioRemoteService? remoteService})
     : _remoteService = remoteService,
       _snapshot = _PortfolioSnapshot.fromMock();
 
-  final SupabasePortfolioService? _remoteService;
+  final PortfolioRemoteService? _remoteService;
   _PortfolioSnapshot _snapshot;
 
   @override
   Future<void> refresh() async {
     final remote = _remoteService;
-    final userId = remote?.currentUser?.id;
+    final userId = remote?.currentUserId;
     if (remote == null || userId == null) {
       return;
     }
@@ -96,12 +111,17 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
       final holdingsRows = responses[1]! as List<Map<String, dynamic>>;
       final targetRows = responses[2]! as List<Map<String, dynamic>>;
       final snapshotRow = responses[3] as Map<String, dynamic>?;
+      final assetIds = _collectAssetIds(assetsRows, holdingsRows);
+      final priceRows = await remote.fetchDailyPricesByAssetIds(
+        assetIds: assetIds,
+      );
 
       final parsed = _buildSnapshot(
         assetsRows: assetsRows,
         holdingsRows: holdingsRows,
         targetRows: targetRows,
         latestSnapshotRow: snapshotRow,
+        priceRows: priceRows,
       );
 
       if (parsed != null) {
@@ -144,11 +164,25 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
     return _snapshot.largestHoldingConcentration;
   }
 
+  @override
+  CorrelationMatrix getCorrelationMatrix() => _snapshot.correlationMatrix;
+
+  @override
+  List<HighCorrelationRisk> getHighCorrelationRisks({double threshold = 0.8}) {
+    if (threshold == 0.8) {
+      return _snapshot.highCorrelationRisks;
+    }
+    return _snapshot.correlationMatrix.highCorrelationRisks(
+      threshold: threshold,
+    );
+  }
+
   _PortfolioSnapshot? _buildSnapshot({
     required List<Map<String, dynamic>> assetsRows,
     required List<Map<String, dynamic>> holdingsRows,
     required List<Map<String, dynamic>> targetRows,
     required Map<String, dynamic>? latestSnapshotRow,
+    required List<Map<String, dynamic>> priceRows,
   }) {
     final assetsById = <String, Map<String, dynamic>>{
       for (final row in assetsRows)
@@ -225,8 +259,9 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
 
     final sortedPositions = [...positions]
       ..sort((left, right) => right.marketValue.compareTo(left.marketValue));
+    final topPositions = sortedPositions.take(5).toList(growable: false);
     final topHoldings = [
-      for (final position in sortedPositions)
+      for (final position in topPositions)
         Holding(
           name: position.name,
           marketValue: Money(
@@ -243,6 +278,10 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
     final largestConcentration = topHoldings.isEmpty
         ? 0.0
         : topHoldings.first.weightRatio.toDouble();
+    final correlationMatrix = _buildCorrelationMatrix(
+      topPositions: topPositions,
+      priceRows: priceRows,
+    );
 
     return _PortfolioSnapshot(
       allocations: List<AssetAllocation>.unmodifiable(allocations),
@@ -252,6 +291,8 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
       ),
       topFiveConcentration: topFiveConcentration,
       largestHoldingConcentration: largestConcentration,
+      correlationMatrix: correlationMatrix,
+      highCorrelationRisks: correlationMatrix.highCorrelationRisks(),
     );
   }
 
@@ -265,7 +306,9 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
       final joinedAsset = _asMap(row['assets']);
       final assetRow = joinedAsset.isNotEmpty
           ? joinedAsset
-          : (assetId == null ? const <String, dynamic>{} : assetsById[assetId] ?? const <String, dynamic>{});
+          : (assetId == null
+                ? const <String, dynamic>{}
+                : assetsById[assetId] ?? const <String, dynamic>{});
       final assetMetadata = _asMap(assetRow['metadata']);
       final holdingMetadata = _asMap(row['metadata']);
 
@@ -297,10 +340,12 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
 
       positions.add(
         _PortfolioPosition(
+          assetId: assetId ?? assetRow['id']?.toString() ?? '',
           name: name,
           category: category,
           marketValue: marketValue,
           currencyCode: currencyCode,
+          metadata: {...assetMetadata, ...holdingMetadata},
         ),
       );
     }
@@ -323,6 +368,7 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
       }
       positions.add(
         _PortfolioPosition(
+          assetId: row['id']?.toString() ?? '',
           name: _resolvePositionName(
             assetRow: row,
             metadata: metadata,
@@ -333,7 +379,12 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
             metadata: metadata,
           ),
           marketValue: marketValue,
-          currencyCode: _resolveCurrencyCode(row: row, assetRow: row, metadata: metadata),
+          currencyCode: _resolveCurrencyCode(
+            row: row,
+            assetRow: row,
+            metadata: metadata,
+          ),
+          metadata: metadata,
         ),
       );
     }
@@ -394,7 +445,8 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
     }
 
     for (final value in activeByAsset.values) {
-      result[value.category] = (result[value.category] ?? 0) + value.targetPercentage;
+      result[value.category] =
+          (result[value.category] ?? 0) + value.targetPercentage;
     }
 
     final totalFromTargetRows = result.values.fold<double>(
@@ -424,6 +476,236 @@ class PortfolioRepositoryImpl implements PortfolioRepository {
     }
 
     return result;
+  }
+
+  List<String> _collectAssetIds(
+    List<Map<String, dynamic>> assetsRows,
+    List<Map<String, dynamic>> holdingsRows,
+  ) {
+    final ids = <String>{};
+    for (final row in holdingsRows) {
+      final assetId = row['asset_id']?.toString().trim();
+      if (assetId != null && assetId.isNotEmpty) {
+        ids.add(assetId);
+      }
+      final joinedAsset = _asMap(row['assets']);
+      final joinedId = joinedAsset['id']?.toString().trim();
+      if (joinedId != null && joinedId.isNotEmpty) {
+        ids.add(joinedId);
+      }
+    }
+    for (final row in assetsRows) {
+      final assetId = row['id']?.toString().trim();
+      if (assetId != null && assetId.isNotEmpty) {
+        ids.add(assetId);
+      }
+    }
+    return ids.toList(growable: false);
+  }
+
+  CorrelationMatrix _buildCorrelationMatrix({
+    required List<_PortfolioPosition> topPositions,
+    required List<Map<String, dynamic>> priceRows,
+  }) {
+    if (topPositions.isEmpty) {
+      return const CorrelationMatrix.empty();
+    }
+
+    final returnsByAsset = _returnsByAssetFromPrices(priceRows);
+    final seriesByHolding = <String, List<double>>{};
+
+    for (final position in topPositions) {
+      final normalizedAssetId = position.assetId.trim();
+      final fromPrice = normalizedAssetId.isEmpty
+          ? const <double>[]
+          : returnsByAsset[normalizedAssetId] ?? const <double>[];
+      if (fromPrice.length >= 5) {
+        seriesByHolding[position.name] = fromPrice;
+        continue;
+      }
+
+      final fallback = _returnsFromMetadata(position.metadata);
+      seriesByHolding[position.name] = fallback.length >= 5
+          ? fallback
+          : const <double>[];
+    }
+
+    final names = [for (final position in topPositions) position.name];
+    final values = <List<double?>>[];
+
+    for (var row = 0; row < names.length; row++) {
+      final rowValues = <double?>[];
+      final leftSeries = seriesByHolding[names[row]] ?? const <double>[];
+      for (var column = 0; column < names.length; column++) {
+        if (row == column) {
+          rowValues.add(1);
+          continue;
+        }
+        final rightSeries = seriesByHolding[names[column]] ?? const <double>[];
+        rowValues.add(_pearsonCorrelation(leftSeries, rightSeries));
+      }
+      values.add(rowValues);
+    }
+
+    return CorrelationMatrix(holdingNames: names, values: values);
+  }
+
+  Map<String, List<double>> _returnsByAssetFromPrices(
+    List<Map<String, dynamic>> priceRows,
+  ) {
+    final closesByAssetByDate = <String, Map<DateTime, double>>{};
+    for (final row in priceRows) {
+      final assetId = row['asset_id']?.toString().trim();
+      if (assetId == null || assetId.isEmpty) {
+        continue;
+      }
+      final date = _parseDate(row['price_date']);
+      final close = _firstPositive([row['adjusted_close'], row['close']]);
+      if (date == null || close == null || close <= 0) {
+        continue;
+      }
+      final mapByDate = closesByAssetByDate.putIfAbsent(
+        assetId,
+        () => <DateTime, double>{},
+      );
+      mapByDate[date] = close;
+    }
+
+    final returnsByAsset = <String, List<double>>{};
+    for (final entry in closesByAssetByDate.entries) {
+      final sortedDates = entry.value.keys.toList(growable: false)
+        ..sort((left, right) => left.compareTo(right));
+      if (sortedDates.length < 2) {
+        continue;
+      }
+      final returns = <double>[];
+      var previous = entry.value[sortedDates.first] ?? 0;
+      for (var i = 1; i < sortedDates.length; i++) {
+        final current = entry.value[sortedDates[i]] ?? 0;
+        if (previous <= 0 || current <= 0) {
+          previous = current;
+          continue;
+        }
+        final dailyReturn = (current / previous) - 1;
+        if (dailyReturn.isFinite) {
+          returns.add(dailyReturn);
+        }
+        previous = current;
+      }
+      returnsByAsset[entry.key] = returns;
+    }
+    return returnsByAsset;
+  }
+
+  List<double> _returnsFromMetadata(Map<String, dynamic> metadata) {
+    final directSeries =
+        _asNumList(metadata['daily_returns']) ??
+        _asNumList(metadata['return_series']) ??
+        _asNumList(metadata['returns']);
+    if (directSeries != null && directSeries.length >= 5) {
+      return directSeries
+          .map((value) => value.toDouble())
+          .where((value) => value.isFinite)
+          .toList(growable: false);
+    }
+
+    final rawPrices =
+        metadata['daily_prices'] ??
+        metadata['price_history'] ??
+        metadata['prices'] ??
+        metadata['close_series'];
+    if (rawPrices is! List || rawPrices.length < 2) {
+      return const <double>[];
+    }
+
+    final closes = <double>[];
+    for (final item in rawPrices) {
+      if (item is Map) {
+        final mapItem = Map<String, dynamic>.from(item);
+        final value = _firstPositive([
+          mapItem['adjusted_close'],
+          mapItem['close'],
+          mapItem['price'],
+          mapItem['value'],
+        ]);
+        if (value != null) {
+          closes.add(value);
+        }
+        continue;
+      }
+      final value = _toNum(item);
+      if (value != null && value > 0) {
+        closes.add(value.toDouble());
+      }
+    }
+
+    if (closes.length < 2) {
+      return const <double>[];
+    }
+
+    final returns = <double>[];
+    for (var index = 1; index < closes.length; index++) {
+      final previous = closes[index - 1];
+      final current = closes[index];
+      if (previous <= 0 || current <= 0) {
+        continue;
+      }
+      final dailyReturn = (current / previous) - 1;
+      if (dailyReturn.isFinite) {
+        returns.add(dailyReturn);
+      }
+    }
+    return returns;
+  }
+
+  List<num>? _asNumList(Object? value) {
+    if (value is! List) {
+      return null;
+    }
+    final values = <num>[];
+    for (final item in value) {
+      final numValue = _toNum(item);
+      if (numValue != null) {
+        values.add(numValue);
+      }
+    }
+    return values;
+  }
+
+  double? _pearsonCorrelation(List<double> left, List<double> right) {
+    final usableLength = math.min(left.length, right.length);
+    if (usableLength < 5) {
+      return null;
+    }
+
+    final leftSlice = left.sublist(left.length - usableLength);
+    final rightSlice = right.sublist(right.length - usableLength);
+    final leftMean =
+        leftSlice.fold<double>(0, (sum, value) => sum + value) / usableLength;
+    final rightMean =
+        rightSlice.fold<double>(0, (sum, value) => sum + value) / usableLength;
+
+    var covariance = 0.0;
+    var leftVariance = 0.0;
+    var rightVariance = 0.0;
+    for (var i = 0; i < usableLength; i++) {
+      final leftDiff = leftSlice[i] - leftMean;
+      final rightDiff = rightSlice[i] - rightMean;
+      covariance += leftDiff * rightDiff;
+      leftVariance += leftDiff * leftDiff;
+      rightVariance += rightDiff * rightDiff;
+    }
+
+    final denominator = math.sqrt(leftVariance * rightVariance);
+    if (denominator <= 0) {
+      return null;
+    }
+
+    final result = covariance / denominator;
+    if (!result.isFinite) {
+      return null;
+    }
+    return result.clamp(-1, 1).toDouble();
   }
 
   List<ContributionDirection> _deriveContributionDirections(
@@ -637,15 +919,30 @@ class _PortfolioSnapshot {
     required this.contributionDirections,
     required this.topFiveConcentration,
     required this.largestHoldingConcentration,
+    required this.correlationMatrix,
+    required this.highCorrelationRisks,
   });
 
   factory _PortfolioSnapshot.fromMock() {
-    return const _PortfolioSnapshot(
+    const matrix = CorrelationMatrix(
+      holdingNames: ['全球股票市場基金', '美國大型股基金', '台灣高股息基金', '投資級債券基金', '短期公債基金'],
+      values: [
+        [1, 0.86, 0.73, 0.42, 0.34],
+        [0.86, 1, 0.69, 0.39, 0.31],
+        [0.73, 0.69, 1, 0.36, 0.28],
+        [0.42, 0.39, 0.36, 1, 0.61],
+        [0.34, 0.31, 0.28, 0.61, 1],
+      ],
+    );
+    return _PortfolioSnapshot(
       allocations: MockPortfolioData.allocations,
       topHoldings: MockPortfolioData.topHoldings,
       contributionDirections: MockPortfolioData.contributionDirections,
       topFiveConcentration: MockPortfolioData.topFiveConcentration,
-      largestHoldingConcentration: MockPortfolioData.largestHoldingConcentration,
+      largestHoldingConcentration:
+          MockPortfolioData.largestHoldingConcentration,
+      correlationMatrix: matrix,
+      highCorrelationRisks: matrix.highCorrelationRisks(),
     );
   }
 
@@ -654,20 +951,26 @@ class _PortfolioSnapshot {
   final List<ContributionDirection> contributionDirections;
   final double topFiveConcentration;
   final double largestHoldingConcentration;
+  final CorrelationMatrix correlationMatrix;
+  final List<HighCorrelationRisk> highCorrelationRisks;
 }
 
 class _PortfolioPosition {
   const _PortfolioPosition({
+    required this.assetId,
     required this.name,
     required this.category,
     required this.marketValue,
     required this.currencyCode,
+    required this.metadata,
   });
 
+  final String assetId;
   final String name;
   final AssetCategory category;
   final double marketValue;
   final String currencyCode;
+  final Map<String, dynamic> metadata;
 }
 
 class _TargetByAsset {

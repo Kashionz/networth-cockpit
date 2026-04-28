@@ -4,6 +4,7 @@ import 'package:flutter/material.dart' show Color;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_env.dart';
+import '../../domain/rules/health_rule_projection.dart';
 import '../../core/theme/app_colors.dart';
 import '../../features/dashboard/models/dashboard_snapshot.dart';
 import '../../shared/models/money.dart';
@@ -11,6 +12,7 @@ import '../../shared/models/month_key.dart';
 import '../../shared/widgets/data_display/allocation_bar.dart';
 import '../../shared/widgets/data_display/progress_bar.dart';
 import '../mock/mock_dashboard_data.dart';
+import 'income_stream_repository.dart';
 import '../services/supabase/supabase_client_factory.dart';
 import '../services/supabase/supabase_dashboard_service.dart';
 
@@ -22,8 +24,12 @@ final dashboardRepositoryProvider = Provider<DashboardRepository>((ref) {
   final remoteService = client == null
       ? null
       : SupabaseDashboardService(client: client);
+  final incomeStreamRepository = ref.watch(incomeStreamRepositoryProvider);
 
-  return DashboardRepositoryImpl(remoteService: remoteService);
+  return DashboardRepositoryImpl(
+    remoteService: remoteService,
+    incomeStreamRepository: incomeStreamRepository,
+  );
 });
 
 final dashboardSnapshotProvider = Provider<DashboardSnapshot>(
@@ -49,11 +55,18 @@ class MockDashboardRepository implements DashboardRepository {
 }
 
 class DashboardRepositoryImpl implements DashboardRepository {
-  DashboardRepositoryImpl({SupabaseDashboardService? remoteService})
-    : _remoteService = remoteService,
-      _localSnapshot = mockDashboardSnapshot;
+  DashboardRepositoryImpl({
+    SupabaseDashboardService? remoteService,
+    IncomeStreamRepository? incomeStreamRepository,
+  }) : _remoteService = remoteService,
+       _incomeStreamRepository =
+           incomeStreamRepository ?? MockIncomeStreamRepository(),
+       _localSnapshot = mockDashboardSnapshot {
+    _localSnapshot = _withUnifiedAttention(_localSnapshot);
+  }
 
   final SupabaseDashboardService? _remoteService;
+  final IncomeStreamRepository _incomeStreamRepository;
   DashboardSnapshot _localSnapshot;
 
   @override
@@ -68,15 +81,17 @@ class DashboardRepositoryImpl implements DashboardRepository {
     }
 
     try {
+      final monthlyIncome = await _resolveMonthlyIncome(userId: userId);
       final remoteSnapshot = await _buildRemoteSnapshot(
         remote: remote,
         userId: userId,
         fallback: _localSnapshot,
+        monthlyIncome: monthlyIncome,
       );
       if (remoteSnapshot == null) {
         return _localSnapshot;
       }
-      _localSnapshot = remoteSnapshot;
+      _localSnapshot = _withUnifiedAttention(remoteSnapshot);
       return _localSnapshot;
     } catch (error, stackTrace) {
       developer.log(
@@ -93,18 +108,19 @@ class DashboardRepositoryImpl implements DashboardRepository {
     required SupabaseDashboardService remote,
     required String userId,
     required DashboardSnapshot fallback,
+    required num monthlyIncome,
   }) async {
-    final portfolioSnapshotsFuture = remote.fetchLatestPortfolioSnapshotsByUserId(
-      userId,
-      limit: 8,
-    );
+    final portfolioSnapshotsFuture = remote
+        .fetchLatestPortfolioSnapshotsByUserId(userId, limit: 8);
     final monthlyBudgetsFuture = remote.fetchLatestMonthlyBudgetsByUserId(
       userId,
       limit: 48,
     );
     final holdingsFuture = remote.fetchHoldingsByUserId(userId);
     final assetsFuture = remote.fetchAssetsByUserId(userId);
-    final targetAllocationsFuture = remote.fetchTargetAllocationsByUserId(userId);
+    final targetAllocationsFuture = remote.fetchTargetAllocationsByUserId(
+      userId,
+    );
     final openStatementsFuture = remote.fetchOpenCardStatementsByUserId(userId);
 
     final portfolioSnapshots = await portfolioSnapshotsFuture;
@@ -115,7 +131,10 @@ class DashboardRepositoryImpl implements DashboardRepository {
     var statements = await openStatementsFuture;
 
     if (statements.isEmpty) {
-      statements = await remote.fetchLatestCardStatementsByUserId(userId, limit: 1);
+      statements = await remote.fetchLatestCardStatementsByUserId(
+        userId,
+        limit: 1,
+      );
     }
 
     final hasAnyRemoteRows =
@@ -134,7 +153,8 @@ class DashboardRepositoryImpl implements DashboardRepository {
     final latestSnapshotDate = _latestDateFromPortfolioSnapshots(
       portfolioSnapshots,
     );
-    final referenceDate = latestBudgetMonth ?? latestSnapshotDate ?? DateTime.now();
+    final referenceDate =
+        latestBudgetMonth ?? latestSnapshotDate ?? DateTime.now();
 
     final budgetResult = _buildBudgetSummary(
       rows: monthlyBudgets,
@@ -144,6 +164,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
     final savingsRate = _resolveSavingsRate(
       budgetResult: budgetResult,
       fallback: fallback.savingsRate,
+      monthlyIncome: monthlyIncome,
     );
     final savingsTarget = _resolveSavingsTarget(
       sourceRows: budgetResult.sourceRows,
@@ -162,13 +183,6 @@ class DashboardRepositoryImpl implements DashboardRepository {
       assets: assets,
       targetAllocations: targetAllocations,
       fallback: fallback.allocationSummary,
-    );
-
-    final attentionItems = _buildAttentionItems(
-      budgetSummary: budgetResult.items,
-      allocationSummary: allocationSummary,
-      fallback: fallback.attentionItems,
-      month: referenceDate,
     );
 
     final statementSummary = _buildStatementSummary(
@@ -197,7 +211,7 @@ class DashboardRepositoryImpl implements DashboardRepository {
       netWorthTrend: netWorthResult.netWorthTrend,
       budgetSummary: budgetResult.items,
       allocationSummary: allocationSummary,
-      attentionItems: attentionItems,
+      attentionItems: fallback.attentionItems,
       statementSummary: statementSummary,
       lastSyncedAt: lastSyncedAt,
     );
@@ -208,17 +222,24 @@ class DashboardRepositoryImpl implements DashboardRepository {
     required DateTime month,
     required List<BudgetSnapshotItem> fallback,
   }) {
-    final filtered =
-        rows.where((row) {
+    final filtered = rows
+        .where((row) {
           final budgetMonth = _parseDate(row['budget_month']);
           return budgetMonth != null &&
               budgetMonth.year == month.year &&
               budgetMonth.month == month.month;
-        }).toList(growable: false);
+        })
+        .toList(growable: false);
 
     if (filtered.isEmpty) {
-      final fallbackLimit = fallback.fold<num>(0, (sum, item) => sum + item.limit);
-      final fallbackUsed = fallback.fold<num>(0, (sum, item) => sum + item.used);
+      final fallbackLimit = fallback.fold<num>(
+        0,
+        (sum, item) => sum + item.limit,
+      );
+      final fallbackUsed = fallback.fold<num>(
+        0,
+        (sum, item) => sum + item.used,
+      );
       return _BudgetSummaryResult(
         items: fallback,
         sourceRows: const [],
@@ -249,8 +270,14 @@ class DashboardRepositoryImpl implements DashboardRepository {
     }
 
     if (totals.isEmpty) {
-      final fallbackLimit = fallback.fold<num>(0, (sum, item) => sum + item.limit);
-      final fallbackUsed = fallback.fold<num>(0, (sum, item) => sum + item.used);
+      final fallbackLimit = fallback.fold<num>(
+        0,
+        (sum, item) => sum + item.limit,
+      );
+      final fallbackUsed = fallback.fold<num>(
+        0,
+        (sum, item) => sum + item.used,
+      );
       return _BudgetSummaryResult(
         items: fallback,
         sourceRows: const [],
@@ -285,7 +312,10 @@ class DashboardRepositoryImpl implements DashboardRepository {
           label: entry.key,
           used: entry.value.used,
           limit: entry.value.limit <= 0 ? 1 : entry.value.limit,
-          tone: _toneForBudget(used: entry.value.used, limit: entry.value.limit),
+          tone: _toneForBudget(
+            used: entry.value.used,
+            limit: entry.value.limit,
+          ),
         ),
       );
     }
@@ -324,15 +354,12 @@ class DashboardRepositoryImpl implements DashboardRepository {
 
     if (snapshotValues.isNotEmpty) {
       final latest = snapshotValues.last;
-      final previous =
-          snapshotValues.length >= 2 ? snapshotValues[snapshotValues.length - 2] : latest;
-      final trend =
-          snapshotValues.length >= 2
-              ? snapshotValues
-              : _scaleTrend(
-                source: fallback.netWorthTrend,
-                targetLatest: latest,
-              );
+      final previous = snapshotValues.length >= 2
+          ? snapshotValues[snapshotValues.length - 2]
+          : latest;
+      final trend = snapshotValues.length >= 2
+          ? snapshotValues
+          : _scaleTrend(source: fallback.netWorthTrend, targetLatest: latest);
       return _NetWorthSummaryResult(
         netWorth: Money.twd(latest),
         netWorthDelta: Money.twd(latest - previous),
@@ -421,7 +448,9 @@ class DashboardRepositoryImpl implements DashboardRepository {
       if (value <= 0) {
         continue;
       }
-      final label = _allocationLabelForAssetType(asset['asset_type']?.toString());
+      final label = _allocationLabelForAssetType(
+        asset['asset_type']?.toString(),
+      );
       assetTotals[label] = (assetTotals[label] ?? 0) + value;
     }
 
@@ -432,10 +461,12 @@ class DashboardRepositoryImpl implements DashboardRepository {
     return fallback;
   }
 
-  List<AllocationSegment> _allocationSegmentsFromTotals(Map<String, num> totals) {
-    final positiveTotals = totals.entries.where((entry) => entry.value > 0).toList(
-      growable: false,
-    );
+  List<AllocationSegment> _allocationSegmentsFromTotals(
+    Map<String, num> totals,
+  ) {
+    final positiveTotals = totals.entries
+        .where((entry) => entry.value > 0)
+        .toList(growable: false);
     if (positiveTotals.isEmpty) {
       return const [];
     }
@@ -444,73 +475,39 @@ class DashboardRepositoryImpl implements DashboardRepository {
       0,
       (sum, entry) => sum + entry.value,
     );
-    final segments =
-        positiveTotals.map((entry) {
+    final segments = positiveTotals
+        .map((entry) {
           final value = total <= 0 ? 0 : (entry.value / total * 100);
           return AllocationSegment(
             label: entry.key,
             value: value.toDouble(),
             color: _allocationColorForLabel(entry.key),
           );
-        }).toList(growable: false);
+        })
+        .toList(growable: false);
 
     final sorted = List<AllocationSegment>.from(segments)
       ..sort((left, right) => right.value.compareTo(left.value));
     return sorted;
   }
 
-  List<AttentionItem> _buildAttentionItems({
-    required List<BudgetSnapshotItem> budgetSummary,
-    required List<AllocationSegment> allocationSummary,
-    required List<AttentionItem> fallback,
-    required DateTime month,
-  }) {
-    final items = <AttentionItem>[];
-
-    final equity = _firstWhereOrNull<AllocationSegment>(
-      allocationSummary,
-      (segment) => segment.label == '股票',
+  DashboardSnapshot _withUnifiedAttention(DashboardSnapshot snapshot) {
+    final evaluation = HealthRuleProjection.evaluateDashboardSnapshot(snapshot);
+    return DashboardSnapshot(
+      month: snapshot.month,
+      savingsRate: snapshot.savingsRate,
+      savingsTarget: snapshot.savingsTarget,
+      netWorth: snapshot.netWorth,
+      netWorthDelta: snapshot.netWorthDelta,
+      netWorthTrend: snapshot.netWorthTrend,
+      budgetSummary: snapshot.budgetSummary,
+      allocationSummary: snapshot.allocationSummary,
+      attentionItems: [
+        AttentionItem(title: evaluation.title, body: evaluation.reason),
+      ],
+      statementSummary: snapshot.statementSummary,
+      lastSyncedAt: snapshot.lastSyncedAt,
     );
-    if (equity != null && equity.value >= 70) {
-      final overTarget = (equity.value - 60).round().clamp(0, 99);
-      items.add(
-        AttentionItem(
-          title: '可考慮回看配置',
-          body: '股票部位高於目標約 $overTarget%,下次投入新資金時可優先補足其他類別。',
-        ),
-      );
-    }
-
-    final flex = _firstWhereOrNull<BudgetSnapshotItem>(
-      budgetSummary,
-      (item) => item.label == '彈性',
-    );
-    if (flex != null && flex.limit > 0) {
-      final usageRatio = flex.used / flex.limit;
-      if (usageRatio >= 0.8) {
-        final totalDays = _daysInMonth(month.year, month.month);
-        final today = DateTime.now();
-        final remainingDays =
-            month.year == today.year && month.month == today.month
-                ? (totalDays - today.day).clamp(0, totalDays)
-                : 0;
-        final remainingAmount = (flex.limit - flex.used).clamp(0, flex.limit);
-        final dailyBudget =
-            remainingDays <= 0 ? remainingAmount : remainingAmount / remainingDays;
-        items.add(
-          AttentionItem(
-            title: '彈性預算接近上限',
-            body: '本月仍有 $remainingDays 天,剩餘日均可用約 NT\$ ${dailyBudget.round()}。',
-          ),
-        );
-      }
-    }
-
-    if (items.isEmpty) {
-      return fallback;
-    }
-
-    return items.take(2).toList(growable: false);
   }
 
   Money _buildStatementSummary({
@@ -590,15 +587,44 @@ class DashboardRepositoryImpl implements DashboardRepository {
     return latest;
   }
 
+  Future<num> _resolveMonthlyIncome({required String userId}) async {
+    final cachedIncome = _incomeStreamRepository.totalMonthlyIncome();
+    if (cachedIncome > 0) {
+      return cachedIncome;
+    }
+
+    try {
+      await _incomeStreamRepository.fetchIncomeStreams(userId: userId);
+    } catch (error, stackTrace) {
+      developer.log(
+        'fetchIncomeStreams for dashboard snapshot failed',
+        name: 'DashboardRepository',
+        error: error,
+        stackTrace: stackTrace,
+      );
+    }
+
+    final refreshedIncome = _incomeStreamRepository.totalMonthlyIncome();
+    return refreshedIncome > 0 ? refreshedIncome : 0;
+  }
+
   double _resolveSavingsRate({
     required _BudgetSummaryResult budgetResult,
     required double fallback,
+    required num monthlyIncome,
   }) {
+    if (monthlyIncome > 0) {
+      final rate =
+          ((monthlyIncome - budgetResult.totalUsed) / monthlyIncome) * 100;
+      return rate.clamp(0, 100).toDouble();
+    }
+
     if (budgetResult.sourceRows.isEmpty || budgetResult.totalLimit <= 0) {
       return fallback;
     }
     final rate =
-        ((budgetResult.totalLimit - budgetResult.totalUsed) / budgetResult.totalLimit) *
+        ((budgetResult.totalLimit - budgetResult.totalUsed) /
+            budgetResult.totalLimit) *
         100;
     return rate.clamp(0, 100).toDouble();
   }
@@ -624,7 +650,9 @@ class DashboardRepositoryImpl implements DashboardRepository {
     var total = 0.0;
     for (final row in rows) {
       final marketValue =
-          _toNum(row['market_value']) ?? _toNum(_metadataMap(row)['market_value']) ?? 0;
+          _toNum(row['market_value']) ??
+          _toNum(_metadataMap(row)['market_value']) ??
+          0;
       if (marketValue > 0) {
         total += marketValue.toDouble();
       }
@@ -656,7 +684,9 @@ class DashboardRepositoryImpl implements DashboardRepository {
       return source;
     }
     final scale = targetLatest / last;
-    return source.map((point) => (point * scale).toDouble()).toList(growable: false);
+    return source
+        .map((point) => (point * scale).toDouble())
+        .toList(growable: false);
   }
 
   String _allocationLabelForAssetType(String? raw) {
@@ -733,19 +763,6 @@ class DashboardRepositoryImpl implements DashboardRepository {
       return Map<String, dynamic>.from(metadata);
     }
     return const <String, dynamic>{};
-  }
-
-  T? _firstWhereOrNull<T>(Iterable<T> values, bool Function(T) test) {
-    for (final value in values) {
-      if (test(value)) {
-        return value;
-      }
-    }
-    return null;
-  }
-
-  int _daysInMonth(int year, int month) {
-    return DateTime(year, month + 1, 0).day;
   }
 }
 

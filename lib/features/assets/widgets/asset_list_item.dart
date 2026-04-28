@@ -22,6 +22,10 @@ class AssetListItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final showMockPlaceholder =
+        asset.type == AssetType.crypto &&
+        _isMockSource(asset.marketQuoteSource);
+
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
@@ -63,11 +67,20 @@ class AssetListItem extends StatelessWidget {
             Column(
               crossAxisAlignment: CrossAxisAlignment.end,
               children: [
-                MoneyDisplay(
-                  amount: asset.value,
-                  size: 16,
-                  weight: FontWeight.w700,
-                ),
+                if (showMockPlaceholder)
+                  Text(
+                    '--',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      color: AppColors.textTertiary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  )
+                else
+                  MoneyDisplay(
+                    amount: asset.value,
+                    size: 16,
+                    weight: FontWeight.w700,
+                  ),
                 const SizedBox(height: AppSpacing.xxs),
                 Text(
                   _ratioLabel(ratio),
@@ -95,3 +108,6 @@ class AssetListItem extends StatelessWidget {
 }
 
 String _ratioLabel(double ratio) => '${(ratio * 100).toStringAsFixed(1)}%';
+
+bool _isMockSource(String? source) =>
+    source != null && source.trim().toLowerCase().endsWith('-mock');

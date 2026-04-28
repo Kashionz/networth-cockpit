@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../data/services/ai/l2_analysis_client.dart';
+import '../../../data/repositories/monthly_report_repository.dart';
 import '../../../shared/models/month_key.dart';
 import '../models/monthly_insight.dart';
 
@@ -12,113 +12,90 @@ final insightsControllerProvider =
 class InsightsController extends Notifier<InsightsState> {
   @override
   InsightsState build() {
-    const fallback = _mockMonthlyInsight;
-    unawaited(refresh(seed: fallback));
-    return const InsightsState(
-      fallbackInsight: fallback,
-      backendInsight: null,
-      source: InsightSource.fallback,
-      statusMessage: '尚未連線分析服務，先使用本地解讀。',
+    final repository = ref.watch(monthlyReportRepositoryProvider);
+    final fallbackReports = repository.fallbackReports;
+    final currentMonth = MonthKey.fromDate(DateTime.now());
+    final selectedMonth = _resolveSelectedMonth(
+      reports: fallbackReports,
+      preferredMonth: currentMonth,
+    );
+    unawaited(refresh(preferredMonth: currentMonth));
+    return InsightsState(
+      reports: fallbackReports,
+      selectedMonth: selectedMonth,
     );
   }
 
-  Future<void> refresh({MonthlyInsight? seed}) async {
-    final fallbackSeed = seed ?? state.fallbackInsight;
-    final result = await ref
-        .read(l2AnalysisClientProvider)
-        .analyzeMonthly(seedInsight: fallbackSeed);
-    if (!ref.mounted) {
+  Future<void> refresh({MonthKey? preferredMonth}) async {
+    final targetMonth = preferredMonth ?? MonthKey.fromDate(DateTime.now());
+    final reports = await ref
+        .read(monthlyReportRepositoryProvider)
+        .fetchReports(ensureCurrentMonth: true);
+    if (!ref.mounted || reports.isEmpty) {
       return;
     }
 
     state = state.copyWith(
-      fallbackInsight: result.usedFallback ? result.insight : fallbackSeed,
-      backendInsight: result.usedFallback ? null : result.insight,
-      source: result.usedFallback
-          ? InsightSource.fallback
-          : InsightSource.backend,
-      statusMessage: result.reason,
+      reports: reports,
+      selectedMonth: _resolveSelectedMonth(
+        reports: reports,
+        preferredMonth: targetMonth,
+      ),
     );
   }
-}
 
-enum InsightSource { backend, fallback }
+  void selectMonth(MonthKey month) {
+    final exists = state.reports.any((report) => report.month == month);
+    if (!exists) {
+      return;
+    }
+    state = state.copyWith(selectedMonth: month);
+  }
+
+  MonthKey _resolveSelectedMonth({
+    required List<MonthlyReportRecord> reports,
+    required MonthKey preferredMonth,
+  }) {
+    for (final report in reports) {
+      if (report.month == preferredMonth) {
+        return preferredMonth;
+      }
+    }
+    return reports.first.month;
+  }
+}
 
 class InsightsState {
-  const InsightsState({
-    required this.fallbackInsight,
-    required this.backendInsight,
-    required this.source,
-    required this.statusMessage,
-  });
+  const InsightsState({required this.reports, required this.selectedMonth});
 
-  final MonthlyInsight fallbackInsight;
-  final MonthlyInsight? backendInsight;
-  final InsightSource source;
-  final String statusMessage;
+  final List<MonthlyReportRecord> reports;
+  final MonthKey selectedMonth;
 
-  MonthlyInsight get displayInsight => backendInsight ?? fallbackInsight;
-  bool get usedFallback => source == InsightSource.fallback;
+  List<MonthKey> get availableMonths => [
+    for (final report in reports) report.month,
+  ];
+
+  MonthlyReportRecord get selectedReport {
+    for (final report in reports) {
+      if (report.month == selectedMonth) {
+        return report;
+      }
+    }
+    return reports.first;
+  }
+
+  MonthlyInsight get displayInsight => selectedReport.insight;
+  bool get usedFallback => selectedReport.usedFallback;
   String get sourceLabel => usedFallback ? '本地 fallback' : 'FastAPI 後端分析';
+  String get statusMessage => selectedReport.statusMessage;
 
   InsightsState copyWith({
-    MonthlyInsight? fallbackInsight,
-    Object? backendInsight = _keepCurrentBackendInsight,
-    InsightSource? source,
-    String? statusMessage,
+    List<MonthlyReportRecord>? reports,
+    MonthKey? selectedMonth,
   }) {
-    final resolvedBackendInsight =
-        identical(backendInsight, _keepCurrentBackendInsight)
-        ? this.backendInsight
-        : backendInsight as MonthlyInsight?;
-
     return InsightsState(
-      fallbackInsight: fallbackInsight ?? this.fallbackInsight,
-      backendInsight: resolvedBackendInsight,
-      source: source ?? this.source,
-      statusMessage: statusMessage ?? this.statusMessage,
+      reports: reports ?? this.reports,
+      selectedMonth: selectedMonth ?? this.selectedMonth,
     );
   }
 }
-
-const _keepCurrentBackendInsight = Object();
-
-const _mockMonthlyInsight = MonthlyInsight(
-  month: MonthKey(2026, 4),
-  netWorthCurrent: 1462000,
-  netWorthDelta: 42000,
-  savingsRate: 0.284,
-  savingsRateTarget: 0.3,
-  budgetCompletion: 0.9,
-  budgetHighlights: [
-    BudgetRecapItem(label: '固定', completion: 0.94, note: '維持原本節奏即可'),
-    BudgetRecapItem(label: '生活', completion: 0.87, note: '可延續目前分配'),
-    BudgetRecapItem(label: '彈性', completion: 0.96, note: '下月可預留一點餘裕'),
-  ],
-  allocationChanges: [
-    AllocationChangeItem(
-      label: '股票',
-      previousWeight: 0.58,
-      currentWeight: 0.6,
-      targetWeight: 0.6,
-    ),
-    AllocationChangeItem(
-      label: '債券',
-      previousWeight: 0.27,
-      currentWeight: 0.25,
-      targetWeight: 0.25,
-    ),
-    AllocationChangeItem(
-      label: '現金',
-      previousWeight: 0.15,
-      currentWeight: 0.15,
-      targetWeight: 0.15,
-    ),
-  ],
-  aiInterpretation: [
-    '淨值延續上月穩定成長，現金流節奏保持一致。',
-    '儲蓄率接近目標，可持續維持目前的月度安排。',
-    '資產配置已回到目標區間，建議固定頻率追蹤即可。',
-  ],
-  outlook: '可考慮在下月維持既有定投與預算配置。',
-);

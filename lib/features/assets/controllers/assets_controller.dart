@@ -35,11 +35,12 @@ class AssetsController extends Notifier<List<Asset>> {
     Money? costBasis,
     String? currency,
     String? market,
+    String? marketQuoteSource,
   }) async {
-    final normalizedCurrency =
-        (currency ?? value.currencyCode).trim().toUpperCase();
-    final normalizedQuantity =
-        quantity == null || quantity <= 0 ? 1 : quantity;
+    final normalizedCurrency = (currency ?? value.currencyCode)
+        .trim()
+        .toUpperCase();
+    final normalizedQuantity = quantity == null || quantity <= 0 ? 1 : quantity;
     final created = Asset(
       id: 'asset-${DateTime.now().microsecondsSinceEpoch}',
       name: name,
@@ -48,14 +49,13 @@ class AssetsController extends Notifier<List<Asset>> {
       symbol: symbol,
       quantity: normalizedQuantity,
       costBasis:
-          costBasis ??
-          Money(value.amount, currencyCode: normalizedCurrency),
+          costBasis ?? Money(value.amount, currencyCode: normalizedCurrency),
       currency: normalizedCurrency,
-      market:
-          (market == null || market.trim().isEmpty)
-              ? _defaultMarketForType(type)
-              : market.trim().toUpperCase(),
+      market: (market == null || market.trim().isEmpty)
+          ? _defaultMarketForType(type)
+          : market.trim().toUpperCase(),
       updatedAt: DateTime.now().toUtc(),
+      marketQuoteSource: marketQuoteSource,
     );
 
     state = List<Asset>.unmodifiable([created, ...state]);

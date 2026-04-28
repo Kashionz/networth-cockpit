@@ -30,18 +30,18 @@ class TransactionImportController extends Notifier<TransactionImportState> {
     final resolvedCard = switch (card) {
       ImportCardOption option => option,
       String name => state.cardOptions.firstWhere(
-          (option) => option.name == name,
-          orElse: () => ImportCardOption(
-            id: 'card-fallback',
-            name: name,
-            helperText: '臨時卡片',
-          ),
-        ),
-      _ => const ImportCardOption(
+        (option) => option.name == name,
+        orElse: () => ImportCardOption(
           id: 'card-fallback',
-          name: '未命名卡片',
+          name: name,
           helperText: '臨時卡片',
         ),
+      ),
+      _ => const ImportCardOption(
+        id: 'card-fallback',
+        name: '未命名卡片',
+        helperText: '臨時卡片',
+      ),
     };
     _cancelPendingParsing();
     state = state.copyWith(
@@ -91,10 +91,7 @@ class TransactionImportController extends Notifier<TransactionImportState> {
       return;
     }
 
-    _stageCsvForParsing(
-      csvContent: result.content!,
-      statusLabel: '已讀取檔案，準備解析',
-    );
+    _stageCsvForParsing(csvContent: result.content!, statusLabel: '已讀取檔案，準備解析');
   }
 
   void submitCsvContent(String csvContent) {
@@ -164,7 +161,8 @@ class TransactionImportController extends Notifier<TransactionImportState> {
     state = state.copyWith(
       currentStep: ImportStep.confirming,
       reviewTransactionIds: const [],
-      suggestionsApplied: state.suggestionsApplied || state.reviewRows.isNotEmpty,
+      suggestionsApplied:
+          state.suggestionsApplied || state.reviewRows.isNotEmpty,
       acceptedReviewCount: state.acceptedReviewCount + pendingCount,
     );
   }
@@ -241,6 +239,9 @@ class TransactionImportController extends Notifier<TransactionImportState> {
   }
 
   Future<void> _hydrateCardOptions() async {
+    if (!ref.mounted) {
+      return;
+    }
     final cardsRepository = ref.read(cardsRepositoryProvider);
     final cards = await cardsRepository.fetchCards();
     if (!ref.mounted) {
@@ -260,7 +261,10 @@ class TransactionImportController extends Notifier<TransactionImportState> {
     }
   }
 
-  Future<void> _parseAndPrepareReview(int operationId, String csvContent) async {
+  Future<void> _parseAndPrepareReview(
+    int operationId,
+    String csvContent,
+  ) async {
     try {
       final parser = ref.read(transactionCsvParserProvider);
       final parseResult = parser.parse(csvContent);
@@ -509,8 +513,7 @@ class TransactionImportState {
       acceptedReviewCount: acceptedReviewCount ?? this.acceptedReviewCount,
       skippedRowCount: skippedRowCount ?? this.skippedRowCount,
       cardOptions: cardOptions ?? this.cardOptions,
-      usedSupabaseFallback:
-          usedSupabaseFallback ?? this.usedSupabaseFallback,
+      usedSupabaseFallback: usedSupabaseFallback ?? this.usedSupabaseFallback,
       isWriting: isWriting ?? this.isWriting,
       selectedCardId: selectedCardId == _unset
           ? this.selectedCardId

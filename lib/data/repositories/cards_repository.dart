@@ -12,7 +12,9 @@ import '../services/supabase/supabase_client_factory.dart';
 final cardsRepositoryProvider = Provider<CardsRepository>((ref) {
   final env = ref.watch(appEnvProvider);
   final client = SupabaseClientFactory.create(env);
-  final remoteService = client == null ? null : SupabaseCardsService(client: client);
+  final remoteService = client == null
+      ? null
+      : SupabaseCardsService(client: client);
   return CardsRepositoryImpl(remoteService: remoteService);
 });
 
@@ -20,6 +22,10 @@ abstract interface class CardsRepository {
   List<CreditCardAccount> get fallbackCards;
 
   Future<List<CreditCardAccount>> fetchCards();
+
+  Future<List<CreditCardAccount>> fetchCardsWithStatementDueToday({
+    DateTime? onDate,
+  });
 
   Future<List<CreditCardAccount>> createCard(CreditCardAccount card);
 
@@ -61,6 +67,40 @@ class CardsRepositoryImpl implements CardsRepository {
       );
       return _snapshot();
     }
+  }
+
+  @override
+  Future<List<CreditCardAccount>> fetchCardsWithStatementDueToday({
+    DateTime? onDate,
+  }) async {
+    final targetDate = _dayOnlyUtc(onDate ?? DateTime.now());
+    final remote = _remoteService;
+    final userId = remote?.currentUser?.id;
+
+    if (remote != null && userId != null) {
+      try {
+        final rows = await remote.fetchCardsWithStatementDueToday(
+          userId: userId,
+          onDate: targetDate,
+        );
+        return _sorted(rows.map(_cardFromRow).toList(growable: false));
+      } catch (error, stackTrace) {
+        developer.log(
+          'fetchCardsWithStatementDueToday remote call failed',
+          name: 'CardsRepository',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+
+    return _sorted(
+      _localCards
+          .where(
+            (card) => card.statementCycle.statementDate.day == targetDate.day,
+          )
+          .toList(growable: false),
+    );
   }
 
   @override
@@ -142,8 +182,7 @@ class CardsRepositoryImpl implements CardsRepository {
   List<CreditCardAccount> _sorted(List<CreditCardAccount> cards) {
     final sorted = List<CreditCardAccount>.from(cards)
       ..sort(
-        (a, b) =>
-            a.statementCycle.dueDate.compareTo(b.statementCycle.dueDate),
+        (a, b) => a.statementCycle.dueDate.compareTo(b.statementCycle.dueDate),
       );
     return sorted;
   }
@@ -165,7 +204,9 @@ class CardsRepositoryImpl implements CardsRepository {
         ).dueDate;
 
     return CreditCardAccount(
-      id: row['id']?.toString() ?? 'card-local-${DateTime.now().millisecondsSinceEpoch}',
+      id:
+          row['id']?.toString() ??
+          'card-local-${DateTime.now().millisecondsSinceEpoch}',
       displayName: row['card_name']?.toString() ?? '未命名信用卡',
       statementAmount: Money.twd(_resolveStatementAmount(row)),
       statementCycle: StatementCycle(
@@ -212,6 +253,10 @@ class CardsRepositoryImpl implements CardsRepository {
       return null;
     }
     return DateTime.tryParse(value)?.toUtc();
+  }
+
+  DateTime _dayOnlyUtc(DateTime value) {
+    return DateTime.utc(value.year, value.month, value.day);
   }
 
   bool _looksLikeUuid(String value) {

@@ -1,10 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-final accountLifecycleRepositoryProvider = Provider<AccountLifecycleRepository>((
-  ref,
-) {
-  return AccountLifecycleRepositoryImpl();
-});
+final accountLifecycleRepositoryProvider = Provider<AccountLifecycleRepository>(
+  (ref) {
+    return AccountLifecycleRepositoryImpl();
+  },
+);
 
 abstract interface class AccountLifecycleRepository {
   AccountDeletionLifecycle getStatus();
@@ -12,6 +12,19 @@ abstract interface class AccountLifecycleRepository {
   AccountDeletionLifecycle requestDeletion();
 
   AccountDeletionLifecycle cancelDeletion();
+
+  RiskReassessmentLifecycle getRiskReassessmentStatus();
+
+  RiskReassessmentLifecycle updateRiskPreferenceLevel(double level);
+
+  RiskReassessmentLifecycle triggerMajorEventReassessment({
+    required String note,
+  });
+
+  RiskReassessmentLifecycle completeRiskReassessmentTask({
+    required String taskId,
+    String? note,
+  });
 }
 
 enum AccountDeletionStatus { none, pending, cancelled, expired }
@@ -93,13 +106,151 @@ class AccountDeletionLifecycle {
   }
 }
 
+enum RiskReassessmentTaskType { annual, majorEvent }
+
+extension RiskReassessmentTaskTypeX on RiskReassessmentTaskType {
+  String get label => switch (this) {
+    RiskReassessmentTaskType.annual => '12 個月定期再評估',
+    RiskReassessmentTaskType.majorEvent => '重大事件觸發',
+  };
+}
+
+enum RiskReassessmentTaskStatus { pending, overdue, completed }
+
+extension RiskReassessmentTaskStatusX on RiskReassessmentTaskStatus {
+  String get label => switch (this) {
+    RiskReassessmentTaskStatus.pending => '待完成',
+    RiskReassessmentTaskStatus.overdue => '逾期待完成',
+    RiskReassessmentTaskStatus.completed => '已完成',
+  };
+}
+
+class RiskReassessmentTask {
+  const RiskReassessmentTask({
+    required this.id,
+    required this.type,
+    required this.status,
+    required this.createdAt,
+    required this.dueAt,
+    this.completedAt,
+    this.note,
+  });
+
+  final String id;
+  final RiskReassessmentTaskType type;
+  final RiskReassessmentTaskStatus status;
+  final DateTime createdAt;
+  final DateTime dueAt;
+  final DateTime? completedAt;
+  final String? note;
+
+  bool get isActionable =>
+      status == RiskReassessmentTaskStatus.pending ||
+      status == RiskReassessmentTaskStatus.overdue;
+
+  RiskReassessmentTask copyWith({
+    RiskReassessmentTaskType? type,
+    RiskReassessmentTaskStatus? status,
+    DateTime? createdAt,
+    DateTime? dueAt,
+    DateTime? completedAt,
+    bool clearCompletedAt = false,
+    String? note,
+  }) {
+    return RiskReassessmentTask(
+      id: id,
+      type: type ?? this.type,
+      status: status ?? this.status,
+      createdAt: createdAt ?? this.createdAt,
+      dueAt: dueAt ?? this.dueAt,
+      completedAt: clearCompletedAt ? null : (completedAt ?? this.completedAt),
+      note: note ?? this.note,
+    );
+  }
+}
+
+class RiskReassessmentLifecycle {
+  const RiskReassessmentLifecycle({
+    required this.riskPreferenceLevel,
+    required this.lastUpdatedAt,
+    required this.tasks,
+    this.lastCompletedAt,
+    this.lastCompletionNote,
+  });
+
+  factory RiskReassessmentLifecycle.initial(DateTime now) {
+    final utcNow = now.toUtc();
+    return RiskReassessmentLifecycle(
+      riskPreferenceLevel: 3,
+      lastUpdatedAt: utcNow,
+      lastCompletedAt: utcNow,
+      tasks: const <RiskReassessmentTask>[],
+    );
+  }
+
+  final double riskPreferenceLevel;
+  final DateTime lastUpdatedAt;
+  final DateTime? lastCompletedAt;
+  final String? lastCompletionNote;
+  final List<RiskReassessmentTask> tasks;
+
+  int get pendingTaskCount => tasks
+      .where((task) => task.status != RiskReassessmentTaskStatus.completed)
+      .length;
+
+  int get completedTaskCount => tasks
+      .where((task) => task.status == RiskReassessmentTaskStatus.completed)
+      .length;
+
+  DateTime? get nextAnnualDueAt {
+    DateTime? earliest;
+    for (final task in tasks) {
+      if (task.type != RiskReassessmentTaskType.annual ||
+          task.status == RiskReassessmentTaskStatus.completed) {
+        continue;
+      }
+      if (earliest == null || task.dueAt.isBefore(earliest)) {
+        earliest = task.dueAt;
+      }
+    }
+    return earliest;
+  }
+
+  RiskReassessmentLifecycle copyWith({
+    double? riskPreferenceLevel,
+    DateTime? lastUpdatedAt,
+    DateTime? lastCompletedAt,
+    bool clearLastCompletedAt = false,
+    String? lastCompletionNote,
+    bool clearLastCompletionNote = false,
+    List<RiskReassessmentTask>? tasks,
+  }) {
+    return RiskReassessmentLifecycle(
+      riskPreferenceLevel: riskPreferenceLevel ?? this.riskPreferenceLevel,
+      lastUpdatedAt: lastUpdatedAt ?? this.lastUpdatedAt,
+      lastCompletedAt: clearLastCompletedAt
+          ? null
+          : (lastCompletedAt ?? this.lastCompletedAt),
+      lastCompletionNote: clearLastCompletionNote
+          ? null
+          : (lastCompletionNote ?? this.lastCompletionNote),
+      tasks: tasks ?? this.tasks,
+    );
+  }
+}
+
 class AccountLifecycleRepositoryImpl implements AccountLifecycleRepository {
   AccountLifecycleRepositoryImpl({DateTime Function()? now})
     : _now = now ?? DateTime.now,
-      _state = AccountDeletionLifecycle.initial((now ?? DateTime.now)());
+      _state = AccountDeletionLifecycle.initial((now ?? DateTime.now)()),
+      _riskLifecycle = RiskReassessmentLifecycle.initial(
+        (now ?? DateTime.now)(),
+      );
 
   final DateTime Function() _now;
   AccountDeletionLifecycle _state;
+  RiskReassessmentLifecycle _riskLifecycle;
+  int _riskTaskCounter = 0;
 
   @override
   AccountDeletionLifecycle getStatus() {
@@ -155,6 +306,92 @@ class AccountLifecycleRepositoryImpl implements AccountLifecycleRepository {
     return _state;
   }
 
+  @override
+  RiskReassessmentLifecycle getRiskReassessmentStatus() {
+    _syncRiskReassessment();
+    return _riskLifecycle;
+  }
+
+  @override
+  RiskReassessmentLifecycle updateRiskPreferenceLevel(double level) {
+    _syncRiskReassessment();
+    final now = _now().toUtc();
+    _riskLifecycle = _riskLifecycle.copyWith(
+      riskPreferenceLevel: level.clamp(1, 5).toDouble(),
+      lastUpdatedAt: now,
+    );
+    return _riskLifecycle;
+  }
+
+  @override
+  RiskReassessmentLifecycle triggerMajorEventReassessment({
+    required String note,
+  }) {
+    _syncRiskReassessment();
+    final now = _now().toUtc();
+    final trimmed = note.trim();
+    final task = RiskReassessmentTask(
+      id: _nextRiskTaskId(),
+      type: RiskReassessmentTaskType.majorEvent,
+      status: RiskReassessmentTaskStatus.pending,
+      createdAt: now,
+      dueAt: now,
+      note: trimmed.isEmpty ? '重大事件變動' : trimmed,
+    );
+    _riskLifecycle = _riskLifecycle.copyWith(
+      lastUpdatedAt: now,
+      tasks: [task, ..._riskLifecycle.tasks],
+    );
+    return _riskLifecycle;
+  }
+
+  @override
+  RiskReassessmentLifecycle completeRiskReassessmentTask({
+    required String taskId,
+    String? note,
+  }) {
+    _syncRiskReassessment();
+    final now = _now().toUtc();
+    var completedTaskType = RiskReassessmentTaskType.majorEvent;
+    var changed = false;
+    final nextTasks = <RiskReassessmentTask>[];
+    for (final task in _riskLifecycle.tasks) {
+      if (task.id != taskId || !task.isActionable) {
+        nextTasks.add(task);
+        continue;
+      }
+      changed = true;
+      completedTaskType = task.type;
+      nextTasks.add(
+        task.copyWith(
+          status: RiskReassessmentTaskStatus.completed,
+          completedAt: now,
+          note: note ?? task.note,
+        ),
+      );
+    }
+    if (!changed) {
+      return _riskLifecycle;
+    }
+
+    _riskLifecycle = _riskLifecycle.copyWith(
+      lastUpdatedAt: now,
+      lastCompletedAt: now,
+      lastCompletionNote: note?.trim().isNotEmpty == true
+          ? note!.trim()
+          : _riskLifecycle.lastCompletionNote,
+      tasks: nextTasks,
+    );
+
+    if (completedTaskType == RiskReassessmentTaskType.annual) {
+      _appendAnnualTask(dueFrom: now);
+    } else {
+      _ensureAnnualTask();
+    }
+
+    return _riskLifecycle;
+  }
+
   void _syncExpiry() {
     if (_state.status != AccountDeletionStatus.pending) {
       return;
@@ -181,4 +418,63 @@ class AccountLifecycleRepositoryImpl implements AccountLifecycleRepository {
       ],
     );
   }
+
+  void _syncRiskReassessment() {
+    _ensureAnnualTask();
+    final now = _now().toUtc();
+    _riskLifecycle = _riskLifecycle.copyWith(
+      tasks: [
+        for (final task in _riskLifecycle.tasks)
+          if (task.status == RiskReassessmentTaskStatus.completed)
+            task
+          else if (now.isAfter(task.dueAt))
+            task.copyWith(status: RiskReassessmentTaskStatus.overdue)
+          else
+            task.copyWith(status: RiskReassessmentTaskStatus.pending),
+      ],
+      lastUpdatedAt: now,
+    );
+  }
+
+  void _ensureAnnualTask() {
+    final hasPendingAnnual = _riskLifecycle.tasks.any(
+      (task) =>
+          task.type == RiskReassessmentTaskType.annual &&
+          task.status != RiskReassessmentTaskStatus.completed,
+    );
+    if (hasPendingAnnual) {
+      return;
+    }
+    final dueFrom = _riskLifecycle.lastCompletedAt ?? _now().toUtc();
+    _appendAnnualTask(dueFrom: dueFrom);
+  }
+
+  void _appendAnnualTask({required DateTime dueFrom}) {
+    final now = _now().toUtc();
+    final dueAt = DateTime.utc(
+      dueFrom.year,
+      dueFrom.month + 12,
+      dueFrom.day,
+      dueFrom.hour,
+      dueFrom.minute,
+      dueFrom.second,
+      dueFrom.millisecond,
+      dueFrom.microsecond,
+    );
+    final task = RiskReassessmentTask(
+      id: _nextRiskTaskId(),
+      type: RiskReassessmentTaskType.annual,
+      status: now.isAfter(dueAt)
+          ? RiskReassessmentTaskStatus.overdue
+          : RiskReassessmentTaskStatus.pending,
+      createdAt: now,
+      dueAt: dueAt,
+      note: '定期風險問卷再評估',
+    );
+    _riskLifecycle = _riskLifecycle.copyWith(
+      tasks: [task, ..._riskLifecycle.tasks],
+    );
+  }
+
+  String _nextRiskTaskId() => 'risk-task-${++_riskTaskCounter}';
 }

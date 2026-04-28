@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:networth_cockpit/core/theme/app_colors.dart';
 import 'package:networth_cockpit/shared/widgets/data_display/trend_sparkline.dart';
 
 void main() {
@@ -63,7 +62,7 @@ void main() {
       ),
       paints
         ..save()
-        ..circle(color: AppColors.accent),
+        ..circle(x: 60, y: 28, radius: 3),
     );
   });
 }

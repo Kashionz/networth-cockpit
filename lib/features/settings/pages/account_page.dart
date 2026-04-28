@@ -319,7 +319,7 @@ class _AccountPageState extends ConsumerState<AccountPage> {
                 SettingsSection(
                   title: '排程骨架',
                   description:
-                      '可手動觸發 update_prices / daily_snapshot / monthly_report / health_check，並寫入 job_runs（含重試記錄）。',
+                      '可手動觸發 update_prices / daily_snapshot / monthly_report / health_check / subscription_charge / statement_close，並寫入 job_runs（含重試記錄）。',
                   children: [
                     Wrap(
                       spacing: AppSpacing.sm,

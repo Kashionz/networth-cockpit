@@ -7,11 +7,7 @@ import 'package:http/http.dart' as http;
 import 'market_quote.dart';
 import 'market_quote_service.dart';
 
-const _coingeckoEndpointFromEnv = String.fromEnvironment(
-  'COINGECKO_SIMPLE_PRICE_ENDPOINT',
-);
-const _defaultCoingeckoEndpoint =
-    'https://api.coingecko.com/api/v3/simple/price';
+const _coingeckoEndpointFromEnv = String.fromEnvironment('COINGECKO_BASE_URL');
 
 final cryptoQuoteServiceProvider = Provider<CryptoQuoteService>((ref) {
   final client = ref.watch(marketHttpClientProvider);
@@ -19,14 +15,11 @@ final cryptoQuoteServiceProvider = Provider<CryptoQuoteService>((ref) {
 });
 
 class CryptoQuoteService {
-  CryptoQuoteService({String? endpoint, required http.Client httpClient})
-    : endpoint =
-          _normalize(endpoint) ??
-          _normalize(_coingeckoEndpointFromEnv) ??
-          _defaultCoingeckoEndpoint,
+  CryptoQuoteService({String? baseUrl, required http.Client httpClient})
+    : baseUrl = _normalize(baseUrl) ?? _normalize(_coingeckoEndpointFromEnv),
       _httpClient = httpClient;
 
-  final String endpoint;
+  final String? baseUrl;
   final http.Client _httpClient;
 
   static const _supportedCoins = {
@@ -46,11 +39,16 @@ class CryptoQuoteService {
     }
 
     final asOf = DateTime.now();
+    final configuredBaseUrl = baseUrl;
+    if (configuredBaseUrl == null) {
+      return List<MarketQuote>.unmodifiable(_mockQuotes(requested, asOf: asOf));
+    }
+
     try {
-      final uri = Uri.parse(endpoint).replace(
+      final uri = Uri.parse('$configuredBaseUrl/api/v3/simple/price').replace(
         queryParameters: {
           'ids': requested.join(','),
-          'vs_currencies': 'twd',
+          'vs_currencies': 'usd,twd',
           'include_24hr_change': 'true',
           'include_last_updated_at': 'true',
         },
@@ -59,12 +57,21 @@ class CryptoQuoteService {
           .get(uri)
           .timeout(const Duration(seconds: 8));
       if (!_isSuccess(response.statusCode)) {
-        return _mockQuotes(requested, asOf: asOf);
+        _logFallback(
+          'Coingecko quote fetch failed with non-success status.',
+          error: 'status=${response.statusCode}',
+        );
+        return List<MarketQuote>.unmodifiable(
+          _mockQuotes(requested, asOf: asOf),
+        );
       }
 
       final decoded = jsonDecode(response.body);
       if (decoded is! Map) {
-        return _mockQuotes(requested, asOf: asOf);
+        _logFallback('Coingecko quote parse failed: payload is not a map.');
+        return List<MarketQuote>.unmodifiable(
+          _mockQuotes(requested, asOf: asOf),
+        );
       }
 
       final map = decoded.map((key, value) => MapEntry(key.toString(), value));
@@ -76,11 +83,14 @@ class CryptoQuoteService {
         }
 
         final rowMap = row.map((key, value) => MapEntry(key.toString(), value));
-        final price = _parseNum(rowMap['twd']);
+        final price = _parseNum(rowMap['twd']) ?? _parseNum(rowMap['usd']);
         if (price == null) {
           continue;
         }
-        final change = _parseNum(rowMap['twd_24h_change']) ?? 0;
+        final change =
+            _parseNum(rowMap['twd_24h_change']) ??
+            _parseNum(rowMap['usd_24h_change']) ??
+            0;
         final updatedEpoch = _parseNum(rowMap['last_updated_at']);
         final updatedAt = updatedEpoch == null
             ? asOf
@@ -102,13 +112,16 @@ class CryptoQuoteService {
         );
       }
 
-      if (parsed.isNotEmpty) {
+      if (parsed.isNotEmpty && parsed.length == requested.length) {
         return List<MarketQuote>.unmodifiable(parsed);
       }
+      _logFallback(
+        'Coingecko quote parse failed: missing requested symbols in payload.',
+        error: 'requested=${requested.join(",")}, parsed=${parsed.length}',
+      );
     } catch (error, stackTrace) {
-      developer.log(
+      _logFallback(
         'Coingecko quote fetch failed.',
-        name: 'CryptoQuoteService',
         error: error,
         stackTrace: stackTrace,
       );
@@ -145,6 +158,15 @@ class CryptoQuoteService {
 
   bool _isSuccess(int statusCode) => statusCode >= 200 && statusCode < 300;
 
+  void _logFallback(String message, {Object? error, StackTrace? stackTrace}) {
+    developer.log(
+      message,
+      name: 'CryptoQuoteService',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
   num? _parseNum(Object? value) {
     if (value == null) {
       return null;
@@ -164,7 +186,13 @@ class CryptoQuoteService {
     if (value == null) {
       return null;
     }
-    final trimmed = value.trim();
+    var trimmed = value.trim();
+    if (trimmed.isEmpty) {
+      return null;
+    }
+    while (trimmed.endsWith('/')) {
+      trimmed = trimmed.substring(0, trimmed.length - 1);
+    }
     return trimmed.isEmpty ? null : trimmed;
   }
 }

@@ -129,7 +129,9 @@ class _PlanningRow extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Row(
+                  Wrap(
+                    spacing: AppSpacing.xs,
+                    runSpacing: AppSpacing.xxs,
                     children: [
                       Text(
                         plan.name,
@@ -138,7 +140,6 @@ class _PlanningRow extends StatelessWidget {
                           fontWeight: FontWeight.w700,
                         ),
                       ),
-                      const SizedBox(width: AppSpacing.xs),
                       Text(
                         plan.direction,
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(

@@ -45,6 +45,10 @@ class _AddAssetPageState extends ConsumerState<AddAssetPage> {
           value: Money.twd(amount),
         );
 
+    if (!mounted) {
+      return;
+    }
+
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('已新增資產')));
