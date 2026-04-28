@@ -68,6 +68,10 @@ class _ManualTransactionPageState extends ConsumerState<ManualTransactionPage> {
           note: _noteController.text,
         );
 
+    if (!mounted) {
+      return;
+    }
+
     final updatedState = ref.read(transactionsControllerProvider);
     setState(() {
       _amountController.clear();

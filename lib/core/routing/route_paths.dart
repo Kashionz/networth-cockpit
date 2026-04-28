@@ -14,6 +14,9 @@ class RoutePaths {
   static const transactions = '/transactions';
   static const transactionsImport = '/transactions/import';
   static const transactionsManual = '/transactions/manual';
+  static const subscriptions = '/subscriptions';
+  static const income = '/income';
+  static const incomeAdd = '/income/add';
   static const cards = '/cards';
   static const cardsAdd = '/cards/add';
   static const budget = '/budget';

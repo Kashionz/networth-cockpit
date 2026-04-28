@@ -33,26 +33,84 @@
   <title>NetWorth Cockpit</title>
   <link rel="manifest" href="manifest.json">
   <script>
-    window.networthInstallState = { supported: false };
+    function isNetworthInstalled() {
+      var inStandaloneDisplay = false;
+      if (window.matchMedia) {
+        inStandaloneDisplay = window.matchMedia('(display-mode: standalone)').matches;
+      }
+      var iOSStandalone = window.navigator && window.navigator.standalone === true;
+      return inStandaloneDisplay || iOSStandalone;
+    }
+
+    window.networthInstallState = {
+      promptSupported:
+        ('onbeforeinstallprompt' in window) || ('BeforeInstallPromptEvent' in window),
+      canInstall: false,
+      installed: isNetworthInstalled(),
+      lastOutcome: null,
+    };
     window.deferredInstallPrompt = null;
+
+    window.getNetworthInstallState = function () {
+      window.networthInstallState = {
+        promptSupported:
+          ('onbeforeinstallprompt' in window) || ('BeforeInstallPromptEvent' in window),
+        canInstall: !!window.deferredInstallPrompt && !isNetworthInstalled(),
+        installed: isNetworthInstalled(),
+        lastOutcome: window.networthInstallState.lastOutcome,
+      };
+      return window.networthInstallState;
+    };
+
+    function dispatchInstallStateChanged() {
+      window.dispatchEvent(
+        new CustomEvent('networth-install-state-changed', {
+          detail: window.getNetworthInstallState(),
+        }),
+      );
+    }
 
     window.addEventListener('beforeinstallprompt', function (event) {
       event.preventDefault();
       window.deferredInstallPrompt = event;
-      window.networthInstallState.supported = true;
+      window.networthInstallState.lastOutcome = null;
+      dispatchInstallStateChanged();
+    });
+
+    window.addEventListener('appinstalled', function () {
+      window.deferredInstallPrompt = null;
+      window.networthInstallState.lastOutcome = 'accepted';
+      dispatchInstallStateChanged();
     });
 
     window.promptNetworthInstall = async function () {
       if (!window.deferredInstallPrompt) {
-        return false;
+        dispatchInstallStateChanged();
+        return {
+          prompted: false,
+          accepted: false,
+          dismissed: false,
+          reason: 'Install prompt unavailable',
+        };
       }
 
-      window.deferredInstallPrompt.prompt();
-      await window.deferredInstallPrompt.userChoice;
+      var promptEvent = window.deferredInstallPrompt;
+      promptEvent.prompt();
+      var userChoice = await promptEvent.userChoice;
+      var accepted = userChoice && userChoice.outcome === 'accepted';
+      var dismissed = userChoice && userChoice.outcome === 'dismissed';
       window.deferredInstallPrompt = null;
-      window.networthInstallState.supported = false;
-      return true;
+      window.networthInstallState.lastOutcome = accepted ? 'accepted' : 'dismissed';
+      dispatchInstallStateChanged();
+      return {
+        prompted: true,
+        accepted: !!accepted,
+        dismissed: !!dismissed,
+        outcome: userChoice ? userChoice.outcome : null,
+      };
     };
+
+    window.getNetworthInstallState();
   </script>
 </head>
 <body>

@@ -50,6 +50,10 @@ class _AddCardPageState extends ConsumerState<AddCardPage> {
               : _lastFourDigitsController.text.trim(),
         );
 
+    if (!mounted) {
+      return;
+    }
+
     ScaffoldMessenger.of(
       context,
     ).showSnackBar(const SnackBar(content: Text('已新增信用卡')));

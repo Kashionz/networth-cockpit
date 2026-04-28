@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../core/config/app_env.dart';
+import '../../features/subscriptions/models/subscription_item.dart';
 import '../../features/transactions/models/transaction_record.dart';
 import '../../shared/models/money.dart';
 import '../mock/mock_transactions.dart';
@@ -40,9 +41,10 @@ class TransactionRepository {
 
     try {
       final rows = await remote.fetchManualTransactionsByUserId(userId);
-      final filtered = rows.where(_isManualRow).map(_recordFromRow).toList(
-        growable: false,
-      );
+      final filtered = rows
+          .where(_isManualRow)
+          .map(_recordFromRow)
+          .toList(growable: false);
       _localRecords = _sorted(filtered);
       return _snapshot();
     } catch (error, stackTrace) {
@@ -87,6 +89,66 @@ class TransactionRepository {
     return _snapshot();
   }
 
+  Future<String> insertSubscriptionCharge({
+    required SubscriptionItem subscription,
+    DateTime? occurredAt,
+  }) async {
+    final chargeDate = (occurredAt ?? DateTime.now()).toUtc();
+    final transactionId = _generatePseudoUuid();
+    final remote = _remoteService;
+    final userId = remote?.currentUser?.id;
+    if (remote != null && userId != null) {
+      try {
+        await remote.upsertTransaction({
+          'id': transactionId,
+          'user_id': userId,
+          if (subscription.accountId != null)
+            'account_id': subscription.accountId,
+          if (subscription.creditCardId != null)
+            'credit_card_id': subscription.creditCardId,
+          'transaction_type': 'expense',
+          'direction': 'outflow',
+          'occurred_at': chargeDate.toIso8601String(),
+          'amount': subscription.amount.amount,
+          'currency_code': subscription.amount.currencyCode,
+          'merchant': subscription.name,
+          'category': subscription.category,
+          'note': 'Subscription auto charge: ${subscription.name}',
+          'metadata': {
+            'source': 'subscription_auto',
+            'subscription_id': subscription.id,
+            'billing_cycle': subscription.billingCycle.value,
+          },
+          'updated_at': DateTime.now().toUtc().toIso8601String(),
+        });
+        return transactionId;
+      } catch (error, stackTrace) {
+        developer.log(
+          'insertSubscriptionCharge remote call failed',
+          name: 'TransactionRepository',
+          error: error,
+          stackTrace: stackTrace,
+        );
+      }
+    }
+
+    _localRecords = _sorted([
+      TransactionRecord(
+        id: transactionId,
+        amount: Money(
+          subscription.amount.amount,
+          currencyCode: subscription.amount.currencyCode,
+        ),
+        date: chargeDate.toLocal(),
+        category: subscription.category,
+        sourceAccount: _resolveAutoSourceAccount(subscription),
+        note: 'Subscription auto charge: ${subscription.name}',
+      ),
+      ..._localRecords,
+    ]);
+    return transactionId;
+  }
+
   Future<List<TransactionRecord>> _upsertManualRecord(
     TransactionRecord record,
   ) async {
@@ -105,7 +167,10 @@ class TransactionRepository {
           'merchant': record.note ?? '手動記錄',
           'category': record.category,
           'note': record.note,
-          'metadata': {'source': 'manual', 'source_account': record.sourceAccount},
+          'metadata': {
+            'source': 'manual',
+            'source_account': record.sourceAccount,
+          },
           'updated_at': DateTime.now().toUtc().toIso8601String(),
         });
         return fetchManualRecords();
@@ -138,7 +203,9 @@ class TransactionRepository {
 
   TransactionRecord _recordFromRow(Map<String, dynamic> row) {
     return TransactionRecord(
-      id: row['id']?.toString() ?? 'txn-local-${DateTime.now().millisecondsSinceEpoch}',
+      id:
+          row['id']?.toString() ??
+          'txn-local-${DateTime.now().millisecondsSinceEpoch}',
       amount: Money.twd(_toNum(row['amount']) ?? 0),
       date: _parseDateTime(row['occurred_at']) ?? DateTime.now(),
       category: row['category']?.toString() ?? '其他',
@@ -161,6 +228,16 @@ class TransactionRepository {
       return metadata['source_account'].toString();
     }
     return row['source_account']?.toString() ?? '未分類帳戶';
+  }
+
+  String _resolveAutoSourceAccount(SubscriptionItem subscription) {
+    if (subscription.creditCardId?.trim().isNotEmpty == true) {
+      return '信用卡 ${subscription.creditCardId}';
+    }
+    if (subscription.accountId?.trim().isNotEmpty == true) {
+      return '帳戶 ${subscription.accountId}';
+    }
+    return '訂閱自動扣款';
   }
 
   num? _toNum(Object? value) {
@@ -186,6 +263,16 @@ class TransactionRepository {
       r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-5][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$',
     );
     return uuidPattern.hasMatch(value);
+  }
+
+  String _generatePseudoUuid() {
+    final seed = DateTime.now().microsecondsSinceEpoch.toRadixString(16);
+    final normalized = (seed * 3).padRight(32, '0').substring(0, 32);
+    return '${normalized.substring(0, 8)}-'
+        '${normalized.substring(8, 12)}-'
+        '4${normalized.substring(13, 16)}-'
+        'a${normalized.substring(17, 20)}-'
+        '${normalized.substring(20, 32)}';
   }
 }
 

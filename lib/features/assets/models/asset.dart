@@ -13,6 +13,7 @@ class Asset {
     required this.market,
     required this.updatedAt,
     this.symbol,
+    this.marketQuoteSource,
   });
 
   final String id;
@@ -25,6 +26,7 @@ class Asset {
   final String currency;
   final String market;
   final DateTime updatedAt;
+  final String? marketQuoteSource;
 
   Asset copyWith({
     String? id,
@@ -37,6 +39,7 @@ class Asset {
     String? currency,
     String? market,
     DateTime? updatedAt,
+    String? marketQuoteSource,
   }) {
     return Asset(
       id: id ?? this.id,
@@ -49,6 +52,7 @@ class Asset {
       currency: currency ?? this.currency,
       market: market ?? this.market,
       updatedAt: updatedAt ?? this.updatedAt,
+      marketQuoteSource: marketQuoteSource ?? this.marketQuoteSource,
     );
   }
 }

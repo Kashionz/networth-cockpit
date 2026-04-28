@@ -1,3 +1,5 @@
+import 'push_notification_client.dart';
+
 enum ReminderType { billDue, monthEndReview, allocationDrift }
 
 extension ReminderTypeX on ReminderType {
@@ -22,8 +24,10 @@ class ReminderScheduleResult {
   const ReminderScheduleResult({
     required this.usedFallback,
     required this.scheduledMessages,
+    required this.pushPermissionStatus,
   });
 
   final bool usedFallback;
   final List<String> scheduledMessages;
+  final PushPermissionStatus pushPermissionStatus;
 }

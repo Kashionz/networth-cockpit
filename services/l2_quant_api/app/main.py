@@ -6,8 +6,19 @@ from datetime import datetime, timezone
 from typing import Literal
 
 import httpx
+import pandas as pd
 from fastapi import FastAPI
 from pydantic import BaseModel, Field
+
+from .quant import (
+    annualized_return,
+    annualized_volatility,
+    benchmark_diff,
+    calc_returns,
+    max_drawdown,
+    sharpe_ratio,
+    stress_test,
+)
 
 app = FastAPI(
     title="NetWorth Cockpit L2 Quant API",
@@ -28,11 +39,18 @@ class CategorySpend(BaseModel):
     amount: float = Field(ge=0)
 
 
+class PriceHistoryPoint(BaseModel):
+    date: str = Field(min_length=1, max_length=40)
+    close: float
+
+
 class MonthlyAnalysisRequest(BaseModel):
     month: str = Field(pattern=r"^\d{4}-\d{2}$")
     income: float = Field(ge=0)
     expense: float = Field(ge=0)
     top_categories: list[CategorySpend] = Field(default_factory=list)
+    price_history: list[PriceHistoryPoint] = Field(default_factory=list)
+    benchmark_history: list[PriceHistoryPoint] | None = None
     notes: str | None = Field(default=None, max_length=500)
 
 
@@ -47,6 +65,11 @@ class MonthlyAnalysisResponse(BaseModel):
     net_saving: float
     savings_rate_pct: float
     top_category: str | None
+    sharpe_ratio: float | None = None
+    annualized_volatility: float | None = None
+    max_drawdown_pct: float | None = None
+    benchmark_diff_pct: float | None = None
+    stress_test_result: dict | None = None
     recommendations: list[str]
     llm_insight: LlmInsight
 
@@ -101,11 +124,61 @@ def _extract_openai_text(payload: dict) -> str:
     return "\n".join(parts).strip()
 
 
+def _history_to_price_series(history: list[PriceHistoryPoint] | None) -> pd.Series:
+    if not history:
+        return pd.Series(dtype=float)
+
+    frame = pd.DataFrame([{"date": item.date, "close": item.close} for item in history])
+    if frame.empty:
+        return pd.Series(dtype=float)
+
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce", utc=True)
+    frame["close"] = pd.to_numeric(frame["close"], errors="coerce")
+    frame = frame.dropna(subset=["date", "close"]).sort_values("date")
+    if frame.empty:
+        return pd.Series(dtype=float)
+
+    return pd.Series(frame["close"].values, index=frame["date"], dtype=float)
+
+
+def _build_quant_summary(
+    annual_ret: float | None,
+    volatility: float | None,
+    sharpe: float | None,
+    drawdown_pct: float | None,
+    benchmark_delta_pct: float | None,
+    stress_results: dict | None,
+) -> str:
+    stress_brief = "N/A"
+    if isinstance(stress_results, dict) and stress_results:
+        chunks: list[str] = []
+        for scenario_name, scenario_result in stress_results.items():
+            if isinstance(scenario_result, dict) and scenario_result.get("ok"):
+                chunks.append(
+                    f"{scenario_name}(shock_pct={scenario_result.get('shock_pct')},"
+                    f" stressed_max_drawdown_pct={scenario_result.get('stressed_max_drawdown_pct')})"
+                )
+        if chunks:
+            stress_brief = "; ".join(chunks)
+
+    annual_ret_pct = None if annual_ret is None else annual_ret * 100.0
+    parts = [
+        f"annualized_return_pct={annual_ret_pct:.2f}" if annual_ret_pct is not None else "annualized_return_pct=N/A",
+        f"annualized_volatility={volatility:.4f}" if volatility is not None else "annualized_volatility=N/A",
+        f"sharpe_ratio={sharpe:.4f}" if sharpe is not None else "sharpe_ratio=N/A",
+        f"max_drawdown_pct={drawdown_pct:.2f}" if drawdown_pct is not None else "max_drawdown_pct=N/A",
+        f"benchmark_diff_pct={benchmark_delta_pct:.2f}" if benchmark_delta_pct is not None else "benchmark_diff_pct=N/A",
+        f"stress_test={stress_brief}",
+    ]
+    return "; ".join(parts)
+
+
 def _generate_llm_insight(
     request: MonthlyAnalysisRequest,
     net_saving: float,
     savings_rate_pct: float,
     top_category: str | None,
+    quant_summary: str,
 ) -> LlmInsight:
     template = _template_guidance(
         month=request.month,
@@ -129,7 +202,8 @@ def _generate_llm_insight(
         "for budgeting and cashflow. Avoid alarming wording. "
         f"Month={request.month}, income={request.income}, expense={request.expense}, "
         f"net_saving={net_saving}, savings_rate_pct={savings_rate_pct:.2f}, "
-        f"top_category={top_category or 'N/A'}, notes={request.notes or 'N/A'}."
+        f"top_category={top_category or 'N/A'}, notes={request.notes or 'N/A'}, "
+        f"quant_summary={quant_summary}."
     )
 
     try:
@@ -250,6 +324,41 @@ def analysis_monthly(payload: MonthlyAnalysisRequest) -> MonthlyAnalysisResponse
         top = max(payload.top_categories, key=lambda item: item.amount)
         top_category = top.category
 
+    portfolio_prices = _history_to_price_series(payload.price_history)
+    benchmark_prices = _history_to_price_series(payload.benchmark_history)
+    portfolio_returns = calc_returns(portfolio_prices)
+    benchmark_returns = calc_returns(benchmark_prices)
+
+    ann_return = None if portfolio_returns.empty else annualized_return(portfolio_returns)
+    ann_volatility = None if portfolio_returns.empty else annualized_volatility(portfolio_returns)
+    portfolio_sharpe = None if portfolio_returns.empty else sharpe_ratio(portfolio_returns)
+    drawdown_pct = None if portfolio_prices.empty else max_drawdown(portfolio_prices) * 100.0
+
+    benchmark_delta_pct = None
+    if ann_return is not None and not benchmark_returns.empty:
+        benchmark_ann_return = annualized_return(benchmark_returns)
+        benchmark_delta_pct = benchmark_diff(ann_return, benchmark_ann_return) * 100.0
+
+    stress_result = None
+    if not portfolio_prices.empty:
+        # Scenario 1: broad market shock -20%
+        market_drop = stress_test(portfolio_prices, shock_pct=-0.2)
+        # Scenario 2: +100bps rate-hike proxy shock (modeled as valuation pressure)
+        rate_hike = stress_test(portfolio_prices, shock_pct=-0.06)
+        stress_result = {
+            "market_down_20pct": market_drop,
+            "rate_hike_100bps": rate_hike,
+        }
+
+    quant_summary = _build_quant_summary(
+        annual_ret=ann_return,
+        volatility=ann_volatility,
+        sharpe=portfolio_sharpe,
+        drawdown_pct=drawdown_pct,
+        benchmark_delta_pct=benchmark_delta_pct,
+        stress_results=stress_result,
+    )
+
     recommendations = _derive_recommendations(
         net_saving=net_saving,
         savings_rate_pct=savings_rate_pct,
@@ -260,6 +369,7 @@ def analysis_monthly(payload: MonthlyAnalysisRequest) -> MonthlyAnalysisResponse
         net_saving=net_saving,
         savings_rate_pct=savings_rate_pct,
         top_category=top_category,
+        quant_summary=quant_summary,
     )
 
     return MonthlyAnalysisResponse(
@@ -267,6 +377,11 @@ def analysis_monthly(payload: MonthlyAnalysisRequest) -> MonthlyAnalysisResponse
         net_saving=round(net_saving, 2),
         savings_rate_pct=round(savings_rate_pct, 2),
         top_category=top_category,
+        sharpe_ratio=None if portfolio_sharpe is None else round(portfolio_sharpe, 4),
+        annualized_volatility=None if ann_volatility is None else round(ann_volatility, 6),
+        max_drawdown_pct=None if drawdown_pct is None else round(drawdown_pct, 2),
+        benchmark_diff_pct=None if benchmark_delta_pct is None else round(benchmark_delta_pct, 2),
+        stress_test_result=stress_result,
         recommendations=recommendations,
         llm_insight=llm_insight,
     )

@@ -24,9 +24,15 @@ abstract interface class AssetsRepository {
 
   Future<List<Asset>> fetchAssets();
 
-  Future<List<Asset>> createAsset(Asset asset, {bool writePriceSnapshot = true});
+  Future<List<Asset>> createAsset(
+    Asset asset, {
+    bool writePriceSnapshot = true,
+  });
 
-  Future<List<Asset>> updateAsset(Asset asset, {bool writePriceSnapshot = true});
+  Future<List<Asset>> updateAsset(
+    Asset asset, {
+    bool writePriceSnapshot = true,
+  });
 
   Future<List<Asset>> deleteAsset(String assetId);
 }
@@ -158,6 +164,8 @@ class AssetsRepositoryImpl implements AssetsRepository {
         'value': asset.value.amount,
         'quantity': asset.quantity,
         'cost_basis': asset.costBasis.amount,
+        if (asset.marketQuoteSource != null)
+          'market_quote_source': asset.marketQuoteSource,
       },
       'updated_at': updatedAt,
     });
@@ -207,12 +215,10 @@ class AssetsRepositoryImpl implements AssetsRepository {
   }
 
   Asset _normalizeAsset(Asset asset) {
-    final normalizedCurrency =
-        asset.currency.trim().isEmpty
-            ? asset.value.currencyCode
-            : asset.currency.trim().toUpperCase();
-    final normalizedQuantity =
-        asset.quantity <= 0 ? 1 : asset.quantity;
+    final normalizedCurrency = asset.currency.trim().isEmpty
+        ? asset.value.currencyCode
+        : asset.currency.trim().toUpperCase();
+    final normalizedQuantity = asset.quantity <= 0 ? 1 : asset.quantity;
     return asset.copyWith(
       symbol: _normalizeSymbol(asset.symbol),
       quantity: normalizedQuantity,
@@ -224,19 +230,26 @@ class AssetsRepositoryImpl implements AssetsRepository {
       currency: normalizedCurrency,
       market: _normalizeMarket(asset.market, fallbackType: asset.type),
       updatedAt: asset.updatedAt.toUtc(),
+      marketQuoteSource: _normalizeQuoteSource(asset.marketQuoteSource),
     );
   }
 
   Asset _assetFromRow(Map<String, dynamic> row) {
-    final id = row['id']?.toString() ?? 'asset-local-${DateTime.now().millisecondsSinceEpoch}';
+    final id =
+        row['id']?.toString() ??
+        'asset-local-${DateTime.now().millisecondsSinceEpoch}';
     final name = row['name']?.toString() ?? '未命名資產';
     final type = _assetTypeFromRaw(
       row['asset_type']?.toString() ?? row['type']?.toString(),
     );
     final metadata = row['metadata'];
-    final metadataMap = metadata is Map ? Map<String, dynamic>.from(metadata) : const <String, dynamic>{};
+    final metadataMap = metadata is Map
+        ? Map<String, dynamic>.from(metadata)
+        : const <String, dynamic>{};
     final currency =
-        (row['currency_code']?.toString() ?? metadataMap['currency']?.toString() ?? 'TWD')
+        (row['currency_code']?.toString() ??
+                metadataMap['currency']?.toString() ??
+                'TWD')
             .toUpperCase();
     final quantity = _toNum(metadataMap['quantity']) ?? 1;
     final valueAmount = _toNum(metadataMap['value']) ?? 0;
@@ -250,11 +263,11 @@ class AssetsRepositoryImpl implements AssetsRepository {
       quantity: quantity <= 0 ? 1 : quantity,
       costBasis: Money(costBasisAmount, currencyCode: currency),
       currency: currency,
-      market: _normalizeMarket(
-        row['market']?.toString(),
-        fallbackType: type,
-      ),
+      market: _normalizeMarket(row['market']?.toString(), fallbackType: type),
       updatedAt: _parseDateTime(row['updated_at']) ?? DateTime.now().toUtc(),
+      marketQuoteSource: _normalizeQuoteSource(
+        metadataMap['market_quote_source']?.toString(),
+      ),
     );
   }
 
@@ -296,6 +309,14 @@ class AssetsRepositoryImpl implements AssetsRepository {
       return null;
     }
     return value.toUpperCase();
+  }
+
+  String? _normalizeQuoteSource(String? source) {
+    final value = source?.trim();
+    if (value == null || value.isEmpty) {
+      return null;
+    }
+    return value.toLowerCase();
   }
 
   String _normalizeMarket(String? market, {required AssetType fallbackType}) {

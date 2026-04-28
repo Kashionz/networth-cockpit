@@ -201,9 +201,9 @@ class _ThemeIconButton extends ConsumerWidget {
     return IconButton(
       tooltip: isDark ? '切換為亮色模式' : '切換為暗色模式',
       onPressed: () {
-        ref.read(themeModeControllerProvider.notifier).setThemeMode(
-          isDark ? ThemeMode.light : ThemeMode.dark,
-        );
+        ref
+            .read(themeModeControllerProvider.notifier)
+            .setThemeMode(isDark ? ThemeMode.light : ThemeMode.dark);
       },
       icon: Icon(
         isDark ? Icons.light_mode_outlined : Icons.dark_mode_outlined,
@@ -307,6 +307,8 @@ class _NavItem {
 const _navItems = [
   _NavItem('總覽', RoutePaths.dashboard, Icons.dashboard_outlined),
   _NavItem('帳單匯入', RoutePaths.transactionsImport, Icons.upload_file),
+  _NavItem('收入', RoutePaths.income, Icons.account_balance_wallet_outlined),
+  _NavItem('訂閱', RoutePaths.subscriptions, Icons.subscriptions_outlined),
   _NavItem('預算', RoutePaths.budget, Icons.account_balance_wallet_outlined),
   _NavItem('配置', RoutePaths.portfolioAllocation, Icons.donut_large),
   _NavItem('隱私', RoutePaths.settingsPrivacy, Icons.privacy_tip_outlined),
@@ -314,6 +316,8 @@ const _navItems = [
 
 const _mobileItems = [
   _NavItem('總覽', RoutePaths.dashboard, Icons.dashboard_outlined),
+  _NavItem('收入', RoutePaths.income, Icons.account_balance_wallet_outlined),
+  _NavItem('訂閱', RoutePaths.subscriptions, Icons.subscriptions_outlined),
   _NavItem('預算', RoutePaths.budget, Icons.account_balance_wallet_outlined),
   _NavItem('報告', RoutePaths.insights, Icons.insights_outlined),
   _NavItem('隱私', RoutePaths.settingsPrivacy, Icons.privacy_tip_outlined),
