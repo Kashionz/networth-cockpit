@@ -3,9 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:networth_cockpit/data/repositories/portfolio_repository.dart';
 import 'package:networth_cockpit/features/portfolio/controllers/portfolio_controller.dart';
-import 'package:networth_cockpit/features/portfolio/models/asset_allocation.dart';
-import 'package:networth_cockpit/features/portfolio/models/contribution_direction.dart';
-import 'package:networth_cockpit/features/portfolio/models/holding.dart';
 import 'package:networth_cockpit/features/portfolio/pages/allocation_page.dart';
 import 'package:networth_cockpit/shared/models/money.dart';
 
@@ -27,6 +24,7 @@ void main() {
     expect(find.text('現況 vs 目標'), findsOneWidget);
     expect(find.text('偏離度'), findsOneWidget);
     expect(find.text('Top 5 持股'), findsOneWidget);
+    expect(find.text('相關性矩陣（Top 持股）'), findsOneWidget);
     expect(find.text('補倉方向'), findsOneWidget);
     expect(find.text('集中度說明'), findsOneWidget);
     expect(find.textContaining('本資訊僅供參考,不構成投資建議'), findsOneWidget);
@@ -43,7 +41,10 @@ void main() {
       ProviderScope(
         overrides: [
           portfolioRepositoryProvider.overrideWithValue(
-            _FakePortfolioRepository(snapshot: _fakePortfolioSnapshot),
+            _FakePortfolioRepository(
+              snapshot: _fakePortfolioSnapshot,
+              correlationMatrix: _fakeCorrelationMatrix,
+            ),
           ),
         ],
         child: const MaterialApp(home: Scaffold(body: AllocationPage())),
@@ -56,7 +57,9 @@ void main() {
     expect(find.text('+10.0%'), findsOneWidget);
     expect(find.text('-10.0%'), findsOneWidget);
     expect(find.textContaining('45.0%'), findsWidgets);
-    expect(find.textContaining('測試持股 A'), findsOneWidget);
+    expect(find.textContaining('測試持股 A'), findsWidgets);
+    expect(find.text('高同向風險提示（>0.8）'), findsOneWidget);
+    expect(find.textContaining('測試持股 A × 測試持股 B：0.84'), findsOneWidget);
   });
 
   testWidgets('Contribution guidance remains category-level and neutral', (
@@ -72,9 +75,13 @@ void main() {
 }
 
 class _FakePortfolioRepository implements PortfolioRepository {
-  const _FakePortfolioRepository({required this.snapshot});
+  const _FakePortfolioRepository({
+    required this.snapshot,
+    required this.correlationMatrix,
+  });
 
   final PortfolioAllocationViewModel snapshot;
+  final CorrelationMatrix correlationMatrix;
 
   @override
   Future<void> refresh() async {}
@@ -98,6 +105,14 @@ class _FakePortfolioRepository implements PortfolioRepository {
   @override
   List<Holding> getTopHoldings({int limit = 5}) {
     return snapshot.topHoldings.take(limit).toList(growable: false);
+  }
+
+  @override
+  CorrelationMatrix getCorrelationMatrix() => correlationMatrix;
+
+  @override
+  List<HighCorrelationRisk> getHighCorrelationRisks({double threshold = 0.8}) {
+    return correlationMatrix.highCorrelationRisks(threshold: threshold);
   }
 }
 
@@ -133,4 +148,13 @@ const _fakePortfolioSnapshot = PortfolioAllocationViewModel(
   ],
   topFiveConcentration: 45,
   largestHoldingConcentration: 12,
+);
+
+const _fakeCorrelationMatrix = CorrelationMatrix(
+  holdingNames: ['測試持股 A', '測試持股 B', '測試持股 C'],
+  values: [
+    [1, 0.84, 0.42],
+    [0.84, 1, 0.35],
+    [0.42, 0.35, 1],
+  ],
 );

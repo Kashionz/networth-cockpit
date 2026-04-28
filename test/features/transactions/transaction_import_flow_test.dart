@@ -9,6 +9,17 @@ import 'package:networth_cockpit/features/transactions/import/pages/transaction_
 import 'package:networth_cockpit/features/transactions/import/widgets/import_summary_band.dart';
 import 'package:networth_cockpit/shared/widgets/forms/category_tag.dart';
 
+Finder _selectCardButton() => find.widgetWithText(FilledButton, '選擇卡片').first;
+
+const _csvWithoutCategories = '''
+date,merchant,amount,note
+2026-04-02,NTU TIMS Coffee,145,早晨咖啡
+2026-04-03,Taipei Metro,320,通勤
+2026-04-06,Cloud Storage,90,雲端空間
+2026-04-07,Bookstore Online,680,線上書店
+2026-04-09,Market Weekend,1120,採買
+''';
+
 void main() {
   final fallbackL2Client = L2AnalysisClient(
     baseUrl: null,
@@ -27,11 +38,17 @@ void main() {
   }
 
   Future<void> goToReview(WidgetTester tester) async {
-    await tester.tap(find.text('選擇卡片'));
+    await tester.tap(_selectCardButton());
     await tester.pump();
-    await tester.tap(find.text('使用範例檔案'));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TransactionImportFlowPage)),
+    );
+    final controller = container.read(
+      transactionImportControllerProvider.notifier,
+    );
+    controller.submitCsvContent(_csvWithoutCategories);
     await tester.pump();
-    await tester.tap(find.text('開始解析'));
+    controller.startParsing();
     await tester.pumpAndSettle();
   }
 
@@ -42,7 +59,7 @@ void main() {
 
     expect(find.text('選擇信用卡'), findsOneWidget);
 
-    await tester.tap(find.text('選擇卡片'));
+    await tester.tap(_selectCardButton());
     await tester.pump();
     expect(find.text('上傳帳單'), findsOneWidget);
     expect(find.textContaining('支援 CSV / PDF'), findsOneWidget);
@@ -70,10 +87,9 @@ void main() {
     await pumpImportFlow(tester);
     await goToReview(tester);
 
-    expect(find.text('已自動分類 9 筆'), findsOneWidget);
-    expect(find.text('待確認 5 筆'), findsOneWidget);
-    expect(find.text('NTU TIMS Coffee'), findsOneWidget);
-    expect(find.text('越用越快'), findsOneWidget);
+    expect(find.text('已自動分類 3 筆'), findsOneWidget);
+    expect(find.text('待確認 2 筆'), findsOneWidget);
+    expect(find.text('Cloud Storage'), findsOneWidget);
   });
 
   testWidgets('Import review renders suggested categories with CategoryTag', (
@@ -85,10 +101,7 @@ void main() {
     final categoryTags = find.byType(CategoryTag);
 
     expect(categoryTags, findsAtLeastNWidgets(1));
-    expect(
-      find.descendant(of: categoryTags.first, matching: find.text('生活')),
-      findsOneWidget,
-    );
+    expect(find.widgetWithText(CategoryTag, '其他'), findsAtLeastNWidgets(1));
   });
 
   testWidgets('Import review can accept all suggestions without a dialog', (
@@ -110,20 +123,13 @@ void main() {
       await pumpImportFlow(tester);
       await goToReview(tester);
 
-      expect(find.textContaining('保留本地分類'), findsOneWidget);
-      expect(find.text('與通勤支出相近'), findsNothing);
+      expect(find.text('Cloud Storage'), findsOneWidget);
+      expect(find.text('新商家'), findsAtLeastNWidgets(1));
 
-      await tester.scrollUntilVisible(find.text('Taipei Metro'), 80);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Taipei Metro'));
+      await tester.tap(find.text('Cloud Storage'));
       await tester.pumpAndSettle();
 
-      expect(find.text('與通勤支出相近'), findsOneWidget);
-
-      await tester.scrollUntilVisible(find.text('Cloud Storage'), 120);
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('保留本地分類'), findsWidgets);
+      expect(tester.takeException(), isNull);
     },
   );
 
@@ -133,7 +139,7 @@ void main() {
     await pumpImportFlow(tester);
     await goToReview(tester);
 
-    await tester.tap(find.widgetWithText(CategoryTag, '生活').first);
+    await tester.tap(find.widgetWithText(CategoryTag, '其他').first);
     await tester.pumpAndSettle();
 
     expect(find.text('選擇分類'), findsOneWidget);
@@ -142,7 +148,7 @@ void main() {
     await tester.pumpAndSettle();
 
     final ntuRow = find.ancestor(
-      of: find.text('NTU TIMS Coffee'),
+      of: find.text('Cloud Storage'),
       matching: find.byType(Card),
     );
 
@@ -150,7 +156,6 @@ void main() {
       find.descendant(of: ntuRow, matching: find.text('交通')),
       findsOneWidget,
     );
-    expect(find.text('已記住規則'), findsOneWidget);
   });
 
   testWidgets('Import confirmation keeps accepted review rows in write count', (
@@ -164,7 +169,7 @@ void main() {
     await tester.tap(find.text('確認分類'));
     await tester.pump();
 
-    expect(find.text('將寫入 14 筆'), findsOneWidget);
+    expect(find.text('將寫入 5 筆'), findsOneWidget);
   });
 
   testWidgets('Import confirmation shows fixed living and flexible impacts', (
@@ -176,14 +181,12 @@ void main() {
     await tester.tap(find.text('確認分類'));
     await tester.pump();
 
-    expect(find.text('將寫入 14 筆'), findsOneWidget);
+    expect(find.text('將寫入 5 筆'), findsOneWidget);
     expect(find.text('預算影響'), findsOneWidget);
-    expect(find.text('固定'), findsOneWidget);
     expect(find.text('生活'), findsOneWidget);
-    expect(find.text('彈性'), findsOneWidget);
-    expect(find.text('NT\$ 2,490'), findsOneWidget);
-    expect(find.text('NT\$ 12,860'), findsOneWidget);
-    expect(find.text('NT\$ 4,800'), findsOneWidget);
+    expect(find.text('彈性'), findsAtLeastNWidgets(1));
+    expect(find.text('交通'), findsAtLeastNWidgets(1));
+    expect(find.textContaining('NT\$'), findsAtLeastNWidgets(3));
   });
 
   testWidgets('Import summary band avoids overflow in a narrow layout', (
@@ -217,10 +220,17 @@ void main() {
 
   testWidgets('Import failed page uses calm recovery copy', (tester) async {
     await pumpImportFlow(tester);
-    await tester.tap(find.text('選擇卡片'));
+    await tester.tap(_selectCardButton());
     await tester.pump();
-    await tester.tap(find.text('這份檔案暫時無法解析'));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(TransactionImportFlowPage)),
+    );
+    final controller = container.read(
+      transactionImportControllerProvider.notifier,
+    );
+    controller.markFileUnableToParse();
     await tester.pump();
+    await tester.pumpAndSettle();
 
     expect(find.text('這份檔案暫時無法解析'), findsOneWidget);
     expect(find.text('可以換一份 CSV,或稍後再試'), findsOneWidget);

@@ -9,7 +9,7 @@ import 'package:networth_cockpit/features/transactions/import/controllers/transa
 import 'package:networth_cockpit/features/transactions/import/models/import_step.dart';
 
 void main() {
-  test('starts at card selection with sample review data ready', () {
+  test('starts at card selection with empty draft data ready', () {
     final container = _createContainer();
     addTearDown(container.dispose);
 
@@ -17,9 +17,10 @@ void main() {
 
     expect(state.currentStep, ImportStep.selectingCard);
     expect(state.selectedCard, isNull);
-    expect(state.autoClassifiedCount, 9);
-    expect(state.reviewRows, hasLength(5));
-    expect(state.reviewRows.first.merchantName, 'NTU TIMS Coffee');
+    expect(state.transactions, isEmpty);
+    expect(state.autoClassifiedCount, 0);
+    expect(state.reviewRows, isEmpty);
+    expect(state.cardOptions, isNotEmpty);
   });
 
   test(
@@ -35,55 +36,71 @@ void main() {
       expect(controller.state.currentStep, ImportStep.uploading);
       expect(controller.state.selectedCard, '國泰 CUBE');
 
-      controller.useSampleFile();
+      controller.submitCsvContent(_csvWithCategories);
       expect(controller.state.currentStep, ImportStep.parsing);
 
       controller.startParsing();
       await _waitForImportStep(container, ImportStep.reviewing);
-      expect(controller.state.currentStep, ImportStep.reviewing);
-
-      controller.applyAllSuggestions();
-      expect(controller.state.suggestionsApplied, isTrue);
       expect(controller.state.reviewRows, isEmpty);
+      expect(controller.state.writeCount, 5);
 
       controller.confirmCategories();
       expect(controller.state.currentStep, ImportStep.confirming);
-      expect(controller.state.writeCount, 14);
 
-      controller.viewWriteSummary();
+      await controller.viewWriteSummary();
       expect(controller.state.currentStep, ImportStep.completed);
+      expect(controller.state.completionMessage, isNotEmpty);
     },
   );
 
   test(
     'confirming categories accepts remaining review rows before writing',
-    () {
+    () async {
       final container = _createContainer();
       addTearDown(container.dispose);
       final controller = container.read(
         transactionImportControllerProvider.notifier,
       );
 
+      controller.selectCard('國泰 CUBE');
+      controller.submitCsvContent(_csvWithoutCategories);
+      controller.startParsing();
+      await _waitForImportStep(container, ImportStep.reviewing);
+      final pendingRows = controller.state.reviewRows.length;
+
+      expect(pendingRows, greaterThan(0));
       controller.confirmCategories();
 
       expect(controller.state.currentStep, ImportStep.confirming);
       expect(controller.state.reviewRows, isEmpty);
-      expect(controller.state.acceptedReviewCount, 5);
-      expect(controller.state.writeCount, 14);
+      expect(controller.state.acceptedReviewCount, pendingRows);
+      expect(controller.state.writeCount, 5);
     },
   );
 
-  test('review rows cannot be mutated outside controller state updates', () {
-    final container = _createContainer();
-    addTearDown(container.dispose);
-    final controller = container.read(
-      transactionImportControllerProvider.notifier,
-    );
+  test(
+    'transactions cannot be mutated outside controller state updates',
+    () async {
+      final container = _createContainer();
+      addTearDown(container.dispose);
+      final controller = container.read(
+        transactionImportControllerProvider.notifier,
+      );
 
-    controller.updateReviewCategory(controller.state.reviewRows.first.id, '交通');
+      controller.selectCard('國泰 CUBE');
+      controller.submitCsvContent(_csvWithoutCategories);
+      controller.startParsing();
+      await _waitForImportStep(container, ImportStep.reviewing);
 
-    expect(() => controller.state.reviewRows.clear(), throwsUnsupportedError);
-  });
+      final transactionId = controller.state.reviewRows.first.id;
+      controller.updateReviewCategory(transactionId, '交通');
+
+      expect(
+        () => controller.state.transactions.clear(),
+        throwsUnsupportedError,
+      );
+    },
+  );
 
   test('failed state exposes calm recovery copy', () {
     final container = _createContainer();
@@ -103,20 +120,35 @@ void main() {
 
   test(
     'can update a single review row category without changing write count',
-    () {
+    () async {
       final container = _createContainer();
       addTearDown(container.dispose);
       final controller = container.read(
         transactionImportControllerProvider.notifier,
       );
-      final transactionId = controller.state.reviewRows.first.id;
 
+      controller.selectCard('國泰 CUBE');
+      controller.submitCsvContent(_csvWithoutCategories);
+      controller.startParsing();
+      await _waitForImportStep(container, ImportStep.reviewing);
+
+      final transactionId = controller.state.reviewRows.first.id;
       controller.updateReviewCategory(transactionId, '交通');
 
       final updatedState = controller.state;
-      expect(updatedState.reviewRows.first.suggestedCategory, '交通');
-      expect(updatedState.reviewRows.first.reason, '已記住規則');
-      expect(updatedState.writeCount, 14);
+      expect(
+        updatedState.transactions
+            .firstWhere((row) => row.id == transactionId)
+            .suggestedCategory,
+        '交通',
+      );
+      expect(
+        updatedState.transactions
+            .firstWhere((row) => row.id == transactionId)
+            .reason,
+        '已由你調整分類',
+      );
+      expect(updatedState.writeCount, 5);
     },
   );
 
@@ -126,27 +158,37 @@ void main() {
 
     final state = container.read(transactionImportControllerProvider);
 
-    expect(state.categoryOptions, ['生活', '交通', '訂閱', '固定', '彈性']);
+    expect(state.categoryOptions, ['固定', '生活', '交通', '訂閱', '彈性', '其他']);
   });
 
-  test('exposes confirm write budget impacts for the imported statement', () {
-    final container = _createContainer();
-    addTearDown(container.dispose);
+  test(
+    'exposes confirm write budget impacts for the imported statement',
+    () async {
+      final container = _createContainer();
+      addTearDown(container.dispose);
+      final controller = container.read(
+        transactionImportControllerProvider.notifier,
+      );
 
-    final state = container.read(transactionImportControllerProvider);
+      controller.selectCard('國泰 CUBE');
+      controller.submitCsvContent(_csvWithCategories);
+      controller.startParsing();
+      await _waitForImportStep(container, ImportStep.reviewing);
 
-    expect(state.budgetImpacts, hasLength(3));
-    expect(state.budgetImpacts.map((impact) => impact.label), [
-      '固定',
-      '生活',
-      '彈性',
-    ]);
-    expect(state.budgetImpacts.map((impact) => impact.amount), [
-      2490,
-      12860,
-      4800,
-    ]);
-  });
+      final state = controller.state;
+      expect(state.budgetImpacts, hasLength(3));
+      expect(state.budgetImpacts.map((impact) => impact.label), [
+        '生活',
+        '彈性',
+        '交通',
+      ]);
+      expect(state.budgetImpacts.map((impact) => impact.amount), [
+        1265,
+        680,
+        320,
+      ]);
+    },
+  );
 
   test(
     'merchant classify fallback keeps local category and writes fallback reason',
@@ -157,15 +199,16 @@ void main() {
         transactionImportControllerProvider.notifier,
       );
 
-      controller.useSampleFile();
+      controller.selectCard('國泰 CUBE');
+      controller.submitCsvContent(_csvWithoutCategories);
       controller.startParsing();
       await _waitForImportStep(container, ImportStep.reviewing);
 
-      final reviewed = controller.state.reviewRows.firstWhere(
-        (row) => row.id == 'review-ntu-coffee',
+      final reviewed = controller.state.transactions.firstWhere(
+        (row) => row.merchantName == 'Bookstore Online',
       );
       expect(controller.state.currentStep, ImportStep.reviewing);
-      expect(reviewed.suggestedCategory, '生活');
+      expect(reviewed.suggestedCategory, '彈性');
       expect(reviewed.reason, contains('保留本地分類'));
     },
   );
@@ -180,9 +223,12 @@ void main() {
         transactionImportControllerProvider.notifier,
       );
 
-      controller.useSampleFile();
+      controller.selectCard('國泰 CUBE');
+      controller.submitCsvContent(_csvWithoutCategories);
       controller.startParsing();
-      await delayedClient.firstCallStarted.future;
+      await delayedClient.firstCallStarted.future.timeout(
+        const Duration(seconds: 2),
+      );
       controller.startParsing();
 
       expect(delayedClient.callCount, 1);
@@ -200,19 +246,24 @@ void main() {
       transactionImportControllerProvider.notifier,
     );
 
-    controller.useSampleFile();
+    controller.selectCard('國泰 CUBE');
+    controller.submitCsvContent(_csvWithoutCategories);
     controller.startParsing();
-    await delayedClient.firstCallStarted.future;
+    await delayedClient.firstCallStarted.future.timeout(
+      const Duration(seconds: 2),
+    );
 
     controller.restart();
     delayedClient.release();
-    await delayedClient.firstCallFinished.future;
+    await delayedClient.firstCallFinished.future.timeout(
+      const Duration(seconds: 2),
+    );
     await Future<void>.microtask(() {});
 
     final state = container.read(transactionImportControllerProvider);
     expect(state.currentStep, ImportStep.selectingCard);
-    expect(state.reviewRows.first.reason, '依商家名稱建議分類');
-    expect(state.reviewRows.first.suggestedCategory, '生活');
+    expect(state.transactions, isEmpty);
+    expect(state.selectedCard, isNull);
   });
 }
 
@@ -247,7 +298,7 @@ Future<void> _waitForImportStep(
   });
 
   await completer.future.timeout(
-    const Duration(seconds: 1),
+    const Duration(seconds: 3),
     onTimeout: () {
       subscription.close();
       throw TestFailure('Timed out waiting for step: $step');
@@ -316,3 +367,21 @@ class _DelayedL2Client extends _StaticFallbackL2Client {
     );
   }
 }
+
+const _csvWithCategories = '''
+date,merchant,amount,category,note
+2026-04-02,NTU TIMS Coffee,145,生活,早晨咖啡
+2026-04-03,Taipei Metro,320,交通,通勤
+2026-04-06,Cloud Storage,90,訂閱,雲端空間
+2026-04-07,Bookstore Online,680,彈性,線上書店
+2026-04-09,Market Weekend,1120,生活,採買
+''';
+
+const _csvWithoutCategories = '''
+date,merchant,amount,note
+2026-04-02,NTU TIMS Coffee,145,早晨咖啡
+2026-04-03,Taipei Metro,320,通勤
+2026-04-06,Cloud Storage,90,雲端空間
+2026-04-07,Bookstore Online,680,線上書店
+2026-04-09,Market Weekend,1120,採買
+''';

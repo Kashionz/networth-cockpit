@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:networth_cockpit/features/assets/controllers/assets_controller.dart';
+import 'package:networth_cockpit/features/assets/models/asset.dart';
 import 'package:networth_cockpit/features/assets/models/asset_type.dart';
 import 'package:networth_cockpit/features/assets/pages/assets_page.dart';
+import 'package:networth_cockpit/features/assets/widgets/asset_list_item.dart';
 import 'package:networth_cockpit/shared/models/money.dart';
 import 'package:networth_cockpit/shared/widgets/data_display/money_display.dart';
 
@@ -70,4 +72,32 @@ void main() {
     expect(find.text('台幣活存'), findsNothing);
     expect(find.byType(MoneyDisplay), findsAtLeastNWidgets(3));
   });
+
+  testWidgets(
+    'AssetListItem shows grey placeholder for crypto assets from mock source',
+    (tester) async {
+      final cryptoAsset = Asset(
+        id: 'asset-crypto-1',
+        name: 'BTC 現貨',
+        type: AssetType.crypto,
+        value: const Money.twd(2200000),
+        symbol: 'BTC',
+        quantity: 1,
+        costBasis: const Money.twd(2000000),
+        currency: 'TWD',
+        market: 'CRYPTO',
+        updatedAt: DateTime(2026, 4, 27),
+        marketQuoteSource: 'coingecko-mock',
+      );
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: AssetListItem(asset: cryptoAsset, ratio: 0.1)),
+        ),
+      );
+
+      expect(find.text('--'), findsOneWidget);
+      expect(find.byType(MoneyDisplay), findsNothing);
+    },
+  );
 }

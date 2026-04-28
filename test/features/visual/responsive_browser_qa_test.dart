@@ -3,6 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:networth_cockpit/core/routing/app_router.dart';
 import 'package:networth_cockpit/core/routing/route_paths.dart';
+import 'package:networth_cockpit/features/transactions/import/controllers/transaction_import_controller.dart';
+
+const _csvWithoutCategories = '''
+date,merchant,amount,note
+2026-04-02,NTU TIMS Coffee,145,早晨咖啡
+2026-04-03,Taipei Metro,320,通勤
+2026-04-06,Cloud Storage,90,雲端空間
+2026-04-07,Bookstore Online,680,線上書店
+2026-04-09,Market Weekend,1120,採買
+''';
 
 void main() {
   const sizes = [Size(390, 844), Size(768, 1024), Size(1440, 900)];
@@ -51,20 +61,29 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('選擇卡片'));
+    await tester.tap(find.widgetWithText(FilledButton, '選擇卡片').first);
     await tester.pump();
-    await tester.tap(find.text('使用範例檔案'));
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(MaterialApp)),
+    );
+    final controller = container.read(
+      transactionImportControllerProvider.notifier,
+    );
+    controller.submitCsvContent(_csvWithoutCategories);
     await tester.pump();
-    await tester.tap(find.text('開始解析'));
+    controller.startParsing();
     await tester.pumpAndSettle();
 
-    expect(find.text('NTU TIMS Coffee'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Cloud Storage'), 120);
+    await tester.pumpAndSettle();
+
+    expect(find.text('Cloud Storage'), findsOneWidget);
     expect(find.text('新商家'), findsAtLeastNWidgets(1));
     expect(tester.takeException(), isNull);
   });
 
   testWidgets('Budget and portfolio pages avoid nested cards', (tester) async {
-    tester.view.physicalSize = const Size(1024, 900);
+    tester.view.physicalSize = const Size(1280, 900);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);

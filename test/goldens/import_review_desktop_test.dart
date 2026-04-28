@@ -19,7 +19,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('選擇卡片'));
+    await tester.tap(find.widgetWithText(FilledButton, '選擇卡片').first);
     await tester.pump();
     await tester.tap(find.text('使用範例檔案'));
     await tester.pump();
